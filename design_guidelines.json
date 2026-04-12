@@ -1,0 +1,99 @@
+{
+  "app_name": "ARIA",
+  "slogan": "L'intelligence artificielle au service de votre beauté",
+  "theme": "Light",
+  "archetype": "5 (Jewel & Luxury) - Premium iOS Style",
+  "color_palette": {
+    "primary": "#FF2D55",
+    "primary_hover": "#E0244B",
+    "primary_light": "#FFD5DE",
+    "background": "#FFFFFF",
+    "surface": "#F2F2F7",
+    "surface_glass": "rgba(255, 255, 255, 0.8)",
+    "text_primary": "#000000",
+    "text_secondary": "#8E8E93",
+    "border": "#E5E5EA",
+    "error": "#FF3B30",
+    "success": "#34C759"
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "Inter",
+    "scale": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight",
+      "h2": "text-2xl font-semibold tracking-tight",
+      "h3": "text-xl font-medium tracking-tight",
+      "body": "text-base leading-relaxed",
+      "caption": "text-sm text-[#8E8E93]"
+    }
+  },
+  "layout_and_spacing": {
+    "container": "max-w-md mx-auto h-screen bg-white overflow-hidden relative shadow-2xl shadow-black/10 flex flex-col",
+    "content_area": "flex-1 overflow-y-auto pb-24 scrollbar-hide",
+    "padding": "p-6",
+    "border_radius": {
+      "card": "rounded-3xl",
+      "button": "rounded-full",
+      "input": "rounded-2xl"
+    },
+    "shadows": {
+      "card": "shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
+      "glass": "shadow-[0_-4px_24px_rgba(0,0,0,0.06)]"
+    }
+  },
+  "components_strategy": {
+    "navigation": {
+      "bottom_tab_bar": "Fixed at bottom (inside the mobile container). Height h-20. Use glassmorphism (`bg-white/80 backdrop-blur-xl border-t border-[#E5E5EA]`). 4 items: Home, Tutorials, Looks, Profile. Active item: `#FF2D55`, Inactive: `#8E8E93`."
+    },
+    "buttons": {
+      "primary": "bg-[#FF2D55] text-white rounded-full py-4 px-6 font-semibold shadow-md active:scale-95 transition-transform flex items-center justify-center",
+      "floating_chat": "absolute bottom-24 right-6 w-14 h-14 bg-black rounded-full flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.2)] z-50 cursor-pointer text-[#FF2D55] active:scale-90 transition-transform"
+    },
+    "inputs": {
+      "text_field": "w-full bg-[#F2F2F7] rounded-2xl px-4 py-4 text-base focus:ring-2 focus:ring-[#FF2D55] outline-none transition-all placeholder:text-[#8E8E93]"
+    },
+    "cards": {
+      "base": "bg-white rounded-3xl border border-[#E5E5EA] p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden"
+    },
+    "animations": {
+      "splash_screen": "Use framer-motion. Animate the word 'ARIA' fading in and scaling slightly. Pink silk background texture. Fades out after 2.5 seconds to Login/Home.",
+      "page_transitions": "Slide horizontally like iOS push transitions (x: 20, opacity: 0 -> x: 0, opacity: 1)."
+    }
+  },
+  "views_requirements": {
+    "splash_screen": "Full screen overlay. Background image of pink silk. 'ARIA' in bold Outfit text (white or black depending on contrast). Includes the slogan.",
+    "login_register": "Clean form layout. Email, Password, and a 'City' field (vital for weather API). Large primary button. iOS style clean inputs.",
+    "home_dashboard": "Large iOS title 'Bonjour, [Name]'. \n1. Weather Widget: Card showing current temp + city. \n2. Skin Advice: Box linked to weather (e.g., 'It is cold, hydrate your skin.'). \n3. Floating chat button bottom-right. \n4. Horizontal scroll of daily quick tips.",
+    "chat_modal": "Opens via the floating button. Slides up like an iOS sheet (rounded-t-3xl). Contains an AI Chat interface (messages, input area). AI responds to beauty queries.",
+    "tutorials_page": "Grid or vertical list of makeup courses. Large images with `aspect-video` and rounded-3xl. Title and duration overlaid or below.",
+    "saved_looks": "Masonry or 2-column grid of saved beauty portraits/presets. Square or portrait aspect ratios.",
+    "profile": "Circular avatar at top. List of settings (Account, Notifications, Beauty Preferences, Logout) using iOS style list format (bg-white, border-b between items)."
+  },
+  "media": {
+    "images": {
+      "splash_background": "https://images.unsplash.com/photo-1770457732596-cdd592565d66?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHJvc2UlMjBwaW5rJTIwc2lsayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzc2MDA2MTgzfDA&ixlib=rb-4.1.0&q=85",
+      "tutorials": [
+        "https://images.unsplash.com/photo-1773387614632-61be4cb0e9d7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxtYWtldXAlMjB0dXRvcmlhbCUyMGJlYXV0eXxlbnwwfHx8fDE3NzYwMDYxODN8MA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1585049303349-6680e6179692?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxtYWtldXAlMjB0dXRvcmlhbCUyMGJlYXV0eXxlbnwwfHx8fDE3NzYwMDYxODN8MA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1764269719546-afc8567db7c6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwyfHxtYWtldXAlMjB0dXRvcmlhbCUyMGJlYXV0eXxlbnwwfHx8fDE3NzYwMDYxODN8MA&ixlib=rb-4.1.0&q=85"
+      ],
+      "saved_looks": [
+        "https://images.unsplash.com/photo-1594647210801-5124307f3d51?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwzfHxnbGFtb3VyJTIwYmVhdXR5JTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2MDA2MTgzfDA&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1678977942607-a4e527363a04?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxnbGFtb3VyJTIwYmVhdXR5JTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2MDA2MTgzfDA&ixlib=rb-4.1.0&q=85"
+      ],
+      "skin_care": [
+        "https://images.unsplash.com/photo-1761718209708-9ab9ba1c7252?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHw0fHxza2luJTIwY2FyZSUyMGZhY2UlMjBjbGVhbnxlbnwwfHx8fDE3NzYwMDYxODN8MA&ixlib=rb-4.1.0&q=85"
+      ]
+    },
+    "icons": "lucide-react for all UI icons (Home, Video, Heart, User, MessageCircle, Sun, CloudRain)."
+  },
+  "instructions_to_main_agent": [
+    "You are building a React Native Expo app called ARIA.",
+    "Ensure all components are styled using Tailwind/Nativewind or standard StyleSheet matching the iOS spec provided.",
+    "Use standard React Native components or Expo equivalents for Splash Screen, layout, and text.",
+    "MANDATORY: Build the floating AI Chatbox on the Home screen. It should be an absolute positioned rounded button at bottom-right.",
+    "MANDATORY: Implement the Home page with a Weather block. You can mock the weather API logic, but display a UI card showing the City (from registration), Temperature, and AI Skin Advice.",
+    "Add `testID` to all interactive elements for testing (React Native equivalent of data-testid).",
+    "Use iOS style components (squircle borders, rose-pink actions, heavy titles, Tab.Navigator)."
+  ]
+}
