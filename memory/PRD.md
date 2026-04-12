@@ -1,87 +1,51 @@
-# ARIA - AI Makeup Coach - PRD
+# ARIA - AI Makeup Coach - PRD v2
 
 ## Vision
-ARIA est une application mobile d'assistant beauté IA qui transforme l'apprentissage du maquillage en une expérience interactive et personnalisée.
-
-## Slogan
-"L'intelligence artificielle au service de votre beauté"
+ARIA transforme l'apprentissage du maquillage avec une IA personnalisée, un studio caméra et un design 90% iOS.
 
 ## Stack Technique
-- **Frontend**: Expo (React Native) avec Expo Router
-- **Backend**: FastAPI (Python)
-- **Base de données**: MongoDB (Motor async driver)
+- **Frontend**: Expo (React Native) + Expo Router + expo-camera
+- **Backend**: FastAPI (Python) + MongoDB (Motor)
 - **IA Chat**: OpenAI GPT 5.2 via Emergent LLM Key
-- **Météo**: Open-Meteo API (gratuit, sans clé)
+- **Météo**: Open-Meteo API (gratuit)
 - **Auth**: JWT (email/password + bcrypt)
 
-## Fonctionnalités MVP (v1.0)
+## Fonctionnalités v2
 
-### 1. Splash Screen Animé
-- Animation ARIA avec fade-in/scale via Reanimated
-- Redirection auto vers login ou home
+### Accueil (redesigné)
+- Météo compacte + conseil peau personnalisé
+- Bouton principal "Accéder au Studio"
+- Accès rapide : Chat IA + Soins (verrouillé FREE)
 
-### 2. Authentification
-- Inscription (nom, email, mot de passe, ville)
-- Connexion (email, mot de passe)
-- JWT tokens (24h access, 7j refresh)
-- Stockage sécurisé via AsyncStorage
+### Sélection Produits
+- 4 catégories : Lèvres, Yeux, Teint, Joues
+- Choix de teinte pour chaque produit (couleurs visuelles)
+- Bouton "Lancer le Studio" avec produits sélectionnés
 
-### 3. Page d'Accueil (Home)
-- Carte météo avec température, humidité, icône
-- Conseil beauté personnalisé selon la météo
-- Astuces beauté en scroll horizontal
-- Bouton flottant chatbox (coin bas-droit)
+### Studio Caméra
+- Flux caméra front/back avec expo-camera
+- Overlay des produits sélectionnés
+- Guidage IA (Phase 3)
 
-### 4. Chatbox IA (GPT 5.2)
-- Modal slide-up style iOS
-- Conversation multi-tour avec historique
-- Conseils maquillage et soins personnalisés
-- Contexte utilisateur (nom, ville)
+### Tutoriels Premium
+- 4 cours gratuits, 2 cours premium (verrouillés)
+- Expand/collapse des étapes
+- Bouton "Lancer dans le Studio" pour chaque cours
 
-### 5. Tutoriels Maquillage
-- 6 cours pré-seedés (Débutant → Avancé)
-- Cards avec images Unsplash
-- Steps expandables au tap
-- Catégories: Quotidien, Soirée, Technique, Base, Lèvres
+### Profil Modifiable
+- Modification nom, email, ville, mot de passe
+- Carte d'abonnement Premium
+- Bouton Administration (admin uniquement)
 
-### 6. Looks Sauvegardés
-- CRUD complet (créer, lire, supprimer)
-- Sélection de produits par chips (16 produits)
-- Notes optionnelles
-- Sauvegarde persistante en DB
+### Dashboard Admin (tom@gmail.com)
+- Stats réelles : utilisateurs, looks, messages, tutoriels
+- Répartition abonnements (free/premium)
+- Liste utilisateurs récents
 
-### 7. Profil
-- Avatar avec initiales
-- Infos utilisateur (nom, email, ville)
-- Carte d'upgrade Premium (placeholder)
-- Menu paramètres style iOS
-- Déconnexion
+### Chatbox IA (GPT 5.2)
+- Bouton flottant sur l'accueil
+- Conseils beauté personnalisés en français
 
-## Design
-- **Palette**: Noir (#000), Rose (#FF2D55), Blanc (#FFF)
-- **Style**: 90% iOS (rounded corners, SF Pro fonts, glassmorphism)
-- **Spacing**: 8pt grid
-- **Touch targets**: 44px minimum
-
-## API Endpoints
-| Méthode | Route | Description |
-|---------|-------|-------------|
-| POST | /api/auth/register | Inscription |
-| POST | /api/auth/login | Connexion |
-| GET | /api/auth/me | Profil courant |
-| GET | /api/weather?city=X | Météo + conseil |
-| POST | /api/chat | Message IA |
-| GET | /api/chat/history?session_id=X | Historique chat |
-| GET | /api/tutorials | Liste tutoriels |
-| GET | /api/tutorials/:id | Détail tutoriel |
-| GET | /api/looks | Looks sauvegardés |
-| POST | /api/looks | Créer un look |
-| DELETE | /api/looks/:id | Supprimer un look |
-
-## Phase 2 (Futures)
-- Miroir IA (analyse faciale temps réel)
-- Smart Shop (affiliation produits)
-- Paiement Stripe/PayPal pour abonnement Premium
-- Analyse de peau (hydratation, texture)
-- Notifications push
-- Mode hors-ligne
+## Comptes
+- Admin : tom@gmail.com / Tomcle62
+- Utilisateurs : inscription via l'app
