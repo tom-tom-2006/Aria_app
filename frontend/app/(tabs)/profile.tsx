@@ -1,306 +1,191 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
-  Platform,
+  View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, TextInput,
+  Platform, ActivityIndicator, Alert, KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-
-type MenuItem = {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  subtitle: string;
-  action?: () => void;
-  color?: string;
-};
+import { apiCall } from '../../utils/api';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(user?.name || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [city, setCity] = useState(user?.city || '');
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const handleLogout = async () => {
-    await logout();
-    router.replace('/(auth)/login');
+  const handleLogout = async () => { await logout(); router.replace('/(auth)/login'); };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const body: any = {};
+      if (name.trim() !== user?.name) body.name = name.trim();
+      if (email.trim() !== user?.email) body.email = email.trim();
+      if (city.trim() !== user?.city) body.city = city.trim();
+      if (password.length > 0) body.password = password;
+
+      if (Object.keys(body).length === 0) { setEditing(false); setSaving(false); return; }
+
+      const resp = await apiCall('/api/auth/profile', { method: 'PUT', body: JSON.stringify(body) });
+      if (resp.ok) {
+        const updated = await resp.json();
+        await updateUser({ id: updated.id, email: updated.email, name: updated.name, city: updated.city, role: updated.role });
+        setPassword('');
+        setEditing(false);
+        Alert.alert('Succès', 'Profil mis à jour');
+      } else {
+        const err = await resp.json();
+        Alert.alert('Erreur', typeof err.detail === 'string' ? err.detail : 'Impossible de mettre à jour');
+      }
+    } catch (e) { Alert.alert('Erreur', 'Erreur réseau'); } finally { setSaving(false); }
   };
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(w => w[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  const menuItems: MenuItem[] = [
-    {
-      icon: 'person-outline',
-      label: 'Mon compte',
-      subtitle: user?.email || '',
-    },
-    {
-      icon: 'location-outline',
-      label: 'Ma ville',
-      subtitle: user?.city || 'Non définie',
-    },
-    {
-      icon: 'notifications-outline',
-      label: 'Notifications',
-      subtitle: 'Gérer les alertes',
-    },
-    {
-      icon: 'color-palette-outline',
-      label: 'Préférences beauté',
-      subtitle: 'Type de peau, teint',
-    },
-    {
-      icon: 'shield-checkmark-outline',
-      label: 'Confidentialité',
-      subtitle: 'Données et sécurité',
-    },
-    {
-      icon: 'information-circle-outline',
-      label: 'À propos d\'ARIA',
-      subtitle: 'Version 1.0.0',
-    },
-  ];
+  const getInitials = (n: string) => n.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const isAdmin = user?.role === 'admin';
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        testID="profile-screen"
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.title}>Profil</Text>
-
-        {/* Avatar Card */}
-        <View style={styles.avatarCard}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>
-              {user?.name ? getInitials(user.name) : 'U'}
-            </Text>
-          </View>
-          <View style={styles.avatarInfo}>
-            <Text style={styles.avatarName}>{user?.name || 'Utilisateur'}</Text>
-            <Text style={styles.avatarEmail}>{user?.email || ''}</Text>
-          </View>
-        </View>
-
-        {/* Subscription Card */}
-        <View style={styles.subscriptionCard}>
-          <View style={styles.subLeft}>
-            <View style={styles.subBadge}>
-              <Ionicons name="sparkles" size={14} color="#000" />
-              <Text style={styles.subBadgeText}>Gratuit</Text>
-            </View>
-            <Text style={styles.subText}>
-              Passez à Premium pour débloquer l'analyse faciale et les cours avancés
-            </Text>
-          </View>
-          <TouchableOpacity testID="upgrade-button" style={styles.upgradeButton}>
-            <Text style={styles.upgradeText}>Découvrir</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Menu Items */}
-        <View style={styles.menuSection}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              testID={`menu-item-${item.label.toLowerCase().replace(/[^a-z]/g, '-')}`}
-              key={index}
-              style={[
-                styles.menuItem,
-                index === menuItems.length - 1 && styles.menuItemLast,
-              ]}
-              onPress={item.action}
-              activeOpacity={0.7}
-            >
-              <View style={styles.menuIconBox}>
-                <Ionicons name={item.icon} size={20} color="#FF2D55" />
-              </View>
-              <View style={styles.menuContent}>
-                <Text style={styles.menuLabel}>{item.label}</Text>
-                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#C7C7CC" />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView testID="profile-screen" contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Profil</Text>
+            <TouchableOpacity testID="edit-profile-button" onPress={() => editing ? handleSave() : setEditing(true)} disabled={saving}>
+              {saving ? <ActivityIndicator color="#FF2D55" /> : (
+                <Text style={styles.editBtn}>{editing ? 'Sauvegarder' : 'Modifier'}</Text>
+              )}
             </TouchableOpacity>
-          ))}
-        </View>
+          </View>
 
-        {/* Logout */}
-        <TouchableOpacity
-          testID="logout-button"
-          style={styles.logoutButton}
-          onPress={handleLogout}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </TouchableOpacity>
+          {/* Avatar Card */}
+          <View style={styles.avatarCard}>
+            <View style={styles.avatarCircle}><Text style={styles.avatarText}>{user?.name ? getInitials(user.name) : 'U'}</Text></View>
+            <View style={styles.avatarInfo}>
+              {editing ? (
+                <TextInput testID="edit-name-input" style={styles.editInput} value={name} onChangeText={setName} placeholder="Nom" placeholderTextColor="#8E8E93" />
+              ) : (
+                <Text style={styles.avatarName}>{user?.name || 'Utilisateur'}</Text>
+              )}
+              <Text style={styles.avatarRole}>{isAdmin ? 'Administrateur' : 'Membre gratuit'}</Text>
+            </View>
+          </View>
 
-        <View style={{ height: 120 }} />
-      </ScrollView>
+          {/* Editable Fields */}
+          <View style={styles.fieldsSection}>
+            <View style={styles.fieldRow}>
+              <Ionicons name="mail-outline" size={20} color="#FF2D55" />
+              <View style={styles.fieldContent}>
+                <Text style={styles.fieldLabel}>Email</Text>
+                {editing ? (
+                  <TextInput testID="edit-email-input" style={styles.fieldInput} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                ) : (
+                  <Text style={styles.fieldValue}>{user?.email || ''}</Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.fieldDivider} />
+            <View style={styles.fieldRow}>
+              <Ionicons name="location-outline" size={20} color="#FF2D55" />
+              <View style={styles.fieldContent}>
+                <Text style={styles.fieldLabel}>Ville</Text>
+                {editing ? (
+                  <TextInput testID="edit-city-input" style={styles.fieldInput} value={city} onChangeText={setCity} autoCapitalize="words" />
+                ) : (
+                  <Text style={styles.fieldValue}>{user?.city || 'Non définie'}</Text>
+                )}
+              </View>
+            </View>
+            {editing && (
+              <>
+                <View style={styles.fieldDivider} />
+                <View style={styles.fieldRow}>
+                  <Ionicons name="lock-closed-outline" size={20} color="#FF2D55" />
+                  <View style={styles.fieldContent}>
+                    <Text style={styles.fieldLabel}>Nouveau mot de passe</Text>
+                    <TextInput testID="edit-password-input" style={styles.fieldInput} value={password} onChangeText={setPassword} secureTextEntry placeholder="Laisser vide si inchangé" placeholderTextColor="#C7C7CC" />
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* Subscription Card */}
+          <View style={styles.subscriptionCard}>
+            <View style={styles.subLeft}>
+              <View style={styles.subBadge}><Ionicons name="sparkles" size={14} color="#000" /><Text style={styles.subBadgeText}>Gratuit</Text></View>
+              <Text style={styles.subText}>Passez à Premium pour l'analyse faciale et les cours avancés</Text>
+            </View>
+            <TouchableOpacity testID="upgrade-button" style={styles.upgradeButton}>
+              <Text style={styles.upgradeText}>Découvrir</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Admin Button */}
+          {isAdmin && (
+            <TouchableOpacity testID="admin-dashboard-button" style={styles.adminButton} onPress={() => router.push('/admin')}>
+              <View style={styles.adminIconBox}><Ionicons name="settings" size={20} color="#FFF" /></View>
+              <View style={styles.adminInfo}>
+                <Text style={styles.adminLabel}>Administration</Text>
+                <Text style={styles.adminSub}>Dashboard & statistiques</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#FFF" />
+            </TouchableOpacity>
+          )}
+
+          {/* Logout */}
+          <TouchableOpacity testID="logout-button" style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7}>
+            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
+            <Text style={styles.logoutText}>Se déconnecter</Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 120 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 12 : 48,
-  },
-  title: {
-    fontSize: 34,
-    fontWeight: '700',
-    color: '#000000',
-    letterSpacing: -0.5,
-    marginBottom: 24,
-  },
+  safeArea: { flex: 1, backgroundColor: '#FFF' },
+  scrollContent: { paddingHorizontal: 24, paddingTop: Platform.OS === 'ios' ? 12 : 48 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  title: { fontSize: 34, fontWeight: '700', color: '#000', letterSpacing: -0.5 },
+  editBtn: { fontSize: 16, fontWeight: '600', color: '#FF2D55' },
   // Avatar
-  avatarCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F2F2F7',
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 16,
-  },
-  avatarCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 18,
-  },
-  avatarText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#FF2D55',
-  },
-  avatarInfo: {
-    flex: 1,
-  },
-  avatarName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#000000',
-    marginBottom: 4,
-  },
-  avatarEmail: {
-    fontSize: 14,
-    color: '#8E8E93',
-  },
+  avatarCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F7', borderRadius: 24, padding: 24, marginBottom: 16 },
+  avatarCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', marginRight: 18 },
+  avatarText: { fontSize: 24, fontWeight: '600', color: '#FF2D55' },
+  avatarInfo: { flex: 1 },
+  avatarName: { fontSize: 22, fontWeight: '700', color: '#000', marginBottom: 4 },
+  avatarRole: { fontSize: 14, color: '#8E8E93' },
+  editInput: { fontSize: 20, fontWeight: '700', color: '#000', borderBottomWidth: 1, borderBottomColor: '#FF2D55', paddingBottom: 4 },
+  // Fields
+  fieldsSection: { backgroundColor: '#F2F2F7', borderRadius: 20, overflow: 'hidden', marginBottom: 16 },
+  fieldRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 16, gap: 14 },
+  fieldDivider: { height: 0.5, backgroundColor: '#E5E5EA', marginLeft: 52 },
+  fieldContent: { flex: 1 },
+  fieldLabel: { fontSize: 12, color: '#8E8E93', marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
+  fieldValue: { fontSize: 16, color: '#000', fontWeight: '500' },
+  fieldInput: { fontSize: 16, color: '#000', fontWeight: '500', borderBottomWidth: 1, borderBottomColor: '#FF2D55', paddingBottom: 2 },
   // Subscription
-  subscriptionCard: {
-    backgroundColor: '#FFD5DE',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  subLeft: {
-    flex: 1,
-    marginRight: 12,
-  },
-  subBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFFFFF',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  subBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#000000',
-  },
-  subText: {
-    fontSize: 13,
-    color: '#000000',
-    lineHeight: 18,
-  },
-  upgradeButton: {
-    backgroundColor: '#FF2D55',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  upgradeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  // Menu
-  menuSection: {
-    backgroundColor: '#F2F2F7',
-    borderRadius: 20,
-    overflow: 'hidden',
-    marginBottom: 24,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E5EA',
-  },
-  menuItemLast: {
-    borderBottomWidth: 0,
-  },
-  menuIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  menuContent: {
-    flex: 1,
-  },
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000000',
-    marginBottom: 2,
-  },
-  menuSubtitle: {
-    fontSize: 13,
-    color: '#8E8E93',
-  },
+  subscriptionCard: { backgroundColor: '#FFD5DE', borderRadius: 20, padding: 20, marginBottom: 16, flexDirection: 'row', alignItems: 'center' },
+  subLeft: { flex: 1, marginRight: 12 },
+  subBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 10 },
+  subBadgeText: { fontSize: 12, fontWeight: '700', color: '#000' },
+  subText: { fontSize: 13, color: '#000', lineHeight: 18 },
+  upgradeButton: { backgroundColor: '#FF2D55', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12 },
+  upgradeText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
+  // Admin
+  adminButton: { backgroundColor: '#000', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  adminIconBox: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#FF2D55', justifyContent: 'center', alignItems: 'center' },
+  adminInfo: { flex: 1 },
+  adminLabel: { fontSize: 16, fontWeight: '600', color: '#FFF' },
+  adminSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
   // Logout
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FFF5F5',
-    borderRadius: 16,
-    paddingVertical: 16,
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FF3B30',
-  },
+  logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#FFF5F5', borderRadius: 16, paddingVertical: 16 },
+  logoutText: { fontSize: 16, fontWeight: '600', color: '#FF3B30' },
 });

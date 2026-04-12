@@ -87,6 +87,12 @@ class LoginInput(BaseModel):
     email: str
     password: str
 
+class ProfileUpdateInput(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    city: Optional[str] = None
+    password: Optional[str] = None
+
 class ChatInput(BaseModel):
     message: str
     session_id: Optional[str] = None
@@ -100,11 +106,20 @@ class SavedLookInput(BaseModel):
 app = FastAPI(title="ARIA API")
 api_router = APIRouter(prefix="/api")
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # ─── AUTH ENDPOINTS ───
+
+def build_user_response(user_doc, user_id, email):
+    return {
+        "id": user_id,
+        "email": email,
+        "name": user_doc.get("name", ""),
+        "city": user_doc.get("city", ""),
+        "role": user_doc.get("role", "user"),
+        "subscription": user_doc.get("subscription", "free"),
+    }
 
 @api_router.post("/auth/register")
 async def register(data: RegisterInput):
@@ -118,6 +133,7 @@ async def register(data: RegisterInput):
         "name": data.name.strip(),
         "city": data.city.strip(),
         "role": "user",
+        "subscription": "free",
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.users.insert_one(user_doc)
@@ -127,13 +143,7 @@ async def register(data: RegisterInput):
     return {
         "access_token": access,
         "refresh_token": refresh,
-        "user": {
-            "id": user_id,
-            "email": email,
-            "name": data.name.strip(),
-            "city": data.city.strip(),
-            "role": "user"
-        }
+        "user": build_user_response(user_doc, user_id, email)
     }
 
 @api_router.post("/auth/login")
@@ -150,18 +160,40 @@ async def login(data: LoginInput):
     return {
         "access_token": access,
         "refresh_token": refresh,
-        "user": {
-            "id": user_id,
-            "email": email,
-            "name": user.get("name", ""),
-            "city": user.get("city", ""),
-            "role": user.get("role", "user")
-        }
+        "user": build_user_response(user, user_id, email)
     }
 
 @api_router.get("/auth/me")
 async def get_me(user=Depends(get_current_user)):
     return user
+
+@api_router.put("/auth/profile")
+async def update_profile(data: ProfileUpdateInput, user=Depends(get_current_user)):
+    update_fields = {}
+    if data.name is not None:
+        update_fields["name"] = data.name.strip()
+    if data.city is not None:
+        update_fields["city"] = data.city.strip()
+    if data.email is not None:
+        new_email = data.email.lower().strip()
+        if new_email != user.get("email"):
+            existing = await db.users.find_one({"email": new_email})
+            if existing:
+                raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
+            update_fields["email"] = new_email
+    if data.password is not None:
+        if len(data.password) < 6:
+            raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
+        update_fields["password_hash"] = hash_password(data.password)
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie")
+
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": update_fields})
+    updated = await db.users.find_one({"_id": ObjectId(user["id"])})
+    updated["id"] = str(updated.pop("_id"))
+    updated.pop("password_hash", None)
+    return updated
 
 # ─── WEATHER ENDPOINT ───
 
@@ -176,66 +208,40 @@ async def get_weather(city: str):
             geo_data = geo_resp.json()
             if "results" not in geo_data or len(geo_data["results"]) == 0:
                 raise HTTPException(status_code=404, detail="Ville non trouvée")
-
             lat = geo_data["results"][0]["latitude"]
             lon = geo_data["results"][0]["longitude"]
             city_name = geo_data["results"][0]["name"]
-
             weather_resp = await http_client.get(
                 "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current_weather": True,
-                    "hourly": "relative_humidity_2m",
-                    "forecast_days": 1
-                }
+                params={"latitude": lat, "longitude": lon, "current_weather": True, "hourly": "relative_humidity_2m", "forecast_days": 1}
             )
             weather_data = weather_resp.json()
             current = weather_data["current_weather"]
             temp = current["temperature"]
             wcode = current.get("weathercode", 0)
-
-            # Skin advice based on temperature
             if temp < 5:
-                advice = "Temps très froid ! Appliquez une crème riche et protectrice. Hydratez intensément votre peau et protégez vos lèvres avec un baume nourrissant."
+                advice = "Temps très froid ! Appliquez une crème riche et protectrice. Hydratez intensément votre peau."
                 icon = "snow"
             elif temp < 15:
-                advice = "Temps frais. Pensez à bien hydrater votre peau et à utiliser un sérum nourrissant avant votre maquillage pour un teint éclatant."
+                advice = "Temps frais. Hydratez bien votre peau et utilisez un sérum nourrissant avant votre maquillage."
                 icon = "cloud"
             elif temp < 25:
-                advice = "Température idéale ! Utilisez une crème hydratante légère et un SPF 30 minimum pour protéger votre peau tout en laissant respirer."
+                advice = "Température idéale ! Crème hydratante légère et SPF 30 minimum."
                 icon = "partly-sunny"
             elif temp < 35:
-                advice = "Il fait chaud ! Optez pour un maquillage léger et waterproof. N'oubliez pas la protection solaire SPF 50 et brumisez régulièrement."
+                advice = "Il fait chaud ! Maquillage léger et waterproof. N'oubliez pas le SPF 50."
                 icon = "sunny"
             else:
-                advice = "Canicule ! Évitez le maquillage lourd, privilégiez l'hydratation intensive et la protection solaire maximale. Restez à l'ombre."
+                advice = "Canicule ! Évitez le maquillage lourd, hydratation et protection solaire maximale."
                 icon = "sunny"
-
-            # Override icon based on weather code
-            if wcode in [71, 73, 75, 77, 85, 86]:
-                icon = "snow"
-            elif wcode in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]:
-                icon = "rainy"
-            elif wcode in [95, 96, 99]:
-                icon = "thunderstorm"
-            elif wcode in [45, 48]:
-                icon = "cloud"
-            elif wcode in [1, 2, 3]:
-                icon = "partly-sunny"
-
+            if wcode in [71, 73, 75, 77, 85, 86]: icon = "snow"
+            elif wcode in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]: icon = "rainy"
+            elif wcode in [95, 96, 99]: icon = "thunderstorm"
+            elif wcode in [45, 48]: icon = "cloud"
+            elif wcode in [1, 2, 3]: icon = "partly-sunny"
             humidity_list = weather_data.get("hourly", {}).get("relative_humidity_2m", [50])
             humidity = humidity_list[0] if humidity_list else 50
-
-            return {
-                "city": city_name,
-                "temperature": temp,
-                "humidity": humidity,
-                "weather_code": wcode,
-                "icon": icon,
-                "skin_advice": advice
-            }
+            return {"city": city_name, "temperature": temp, "humidity": humidity, "weather_code": wcode, "icon": icon, "skin_advice": advice}
     except HTTPException:
         raise
     except Exception as e:
@@ -248,64 +254,23 @@ async def get_weather(city: str):
 async def chat_message(data: ChatInput, user=Depends(get_current_user)):
     session_id = data.session_id or f"aria-{user['id']}"
     user_id = user["id"]
-
-    # Save user message
-    await db.chat_messages.insert_one({
-        "session_id": session_id,
-        "user_id": user_id,
-        "role": "user",
-        "content": data.message,
-        "created_at": datetime.now(timezone.utc)
-    })
-
-    # Get recent history for context
-    history = await db.chat_messages.find(
-        {"session_id": session_id},
-        {"_id": 0}
-    ).sort("created_at", -1).limit(20).to_list(20)
+    await db.chat_messages.insert_one({"session_id": session_id, "user_id": user_id, "role": "user", "content": data.message, "created_at": datetime.now(timezone.utc)})
+    history = await db.chat_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
     history.reverse()
-
-    # Build context
     context_parts = []
     for msg in history[:-1]:
         role = "Utilisateur" if msg["role"] == "user" else "ARIA"
         context_parts.append(f"{role}: {msg['content']}")
     context_str = "\n".join(context_parts) if context_parts else "Début de conversation."
-
     system_msg = f"""Tu es ARIA, une assistante beauté IA experte en maquillage et soins de la peau.
-Tu donnes des conseils personnalisés, bienveillants et professionnels sur:
-- Les techniques de maquillage (application, blending, contouring)
-- Les soins de la peau (hydratation, nettoyage, protection)
-- Les produits de beauté (recommandations, alternatives)
-- Les tendances beauté actuelles
-
-Réponds toujours en français de manière chaleureuse et encourageante.
-Sois concise mais informative. Utilise des emojis avec parcimonie pour rester professionnelle.
-
-L'utilisateur s'appelle {user.get('name', 'cher(e) utilisateur/trice')} et habite à {user.get('city', 'une ville')}.
-
-Historique récent:
-{context_str}"""
-
+Tu donnes des conseils personnalisés sur les techniques de maquillage, les soins, les produits et les tendances.
+Réponds en français, chaleureusement et professionnellement. Sois concise.
+L'utilisateur s'appelle {user.get('name', '')} et habite à {user.get('city', '')}.
+Historique récent:\n{context_str}"""
     try:
-        llm_chat = LlmChat(
-            api_key=os.environ["EMERGENT_LLM_KEY"],
-            session_id=f"aria-llm-{uuid.uuid4().hex[:8]}",
-            system_message=system_msg
-        ).with_model("openai", "gpt-5.2")
-
-        user_msg = UserMessage(text=data.message)
-        response_text = await llm_chat.send_message(user_msg)
-
-        # Save AI response
-        await db.chat_messages.insert_one({
-            "session_id": session_id,
-            "user_id": user_id,
-            "role": "assistant",
-            "content": response_text,
-            "created_at": datetime.now(timezone.utc)
-        })
-
+        llm_chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"aria-llm-{uuid.uuid4().hex[:8]}", system_message=system_msg).with_model("openai", "gpt-5.2")
+        response_text = await llm_chat.send_message(UserMessage(text=data.message))
+        await db.chat_messages.insert_one({"session_id": session_id, "user_id": user_id, "role": "assistant", "content": response_text, "created_at": datetime.now(timezone.utc)})
         return {"session_id": session_id, "response": response_text}
     except Exception as e:
         logger.error(f"Chat error: {e}")
@@ -313,10 +278,7 @@ Historique récent:
 
 @api_router.get("/chat/history")
 async def get_chat_history(session_id: str, user=Depends(get_current_user)):
-    messages = await db.chat_messages.find(
-        {"session_id": session_id, "user_id": user["id"]},
-        {"_id": 0}
-    ).sort("created_at", 1).to_list(100)
+    messages = await db.chat_messages.find({"session_id": session_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
     return messages
 
 # ─── TUTORIALS ───
@@ -337,22 +299,12 @@ async def get_tutorial(tutorial_id: str):
 
 @api_router.get("/looks")
 async def get_looks(user=Depends(get_current_user)):
-    looks = await db.saved_looks.find(
-        {"user_id": user["id"]},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
+    looks = await db.saved_looks.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return looks
 
 @api_router.post("/looks")
 async def save_look(data: SavedLookInput, user=Depends(get_current_user)):
-    look_doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["id"],
-        "name": data.name,
-        "products": data.products,
-        "notes": data.notes,
-        "created_at": datetime.now(timezone.utc)
-    }
+    look_doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "name": data.name, "products": data.products, "notes": data.notes, "created_at": datetime.now(timezone.utc)}
     await db.saved_looks.insert_one(look_doc)
     look_doc.pop("_id", None)
     look_doc["created_at"] = look_doc["created_at"].isoformat()
@@ -365,17 +317,37 @@ async def delete_look(look_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Look non trouvé")
     return {"message": "Look supprimé"}
 
+# ─── ADMIN ENDPOINTS ───
+
+@api_router.get("/admin/stats")
+async def get_admin_stats(user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès admin requis")
+    total_users = await db.users.count_documents({"role": "user"})
+    total_admins = await db.users.count_documents({"role": "admin"})
+    total_looks = await db.saved_looks.count_documents({})
+    total_messages = await db.chat_messages.count_documents({})
+    total_tutorials = await db.tutorials.count_documents({})
+    free_users = await db.users.count_documents({"role": "user", "subscription": {"$in": ["free", None]}})
+    premium_users = await db.users.count_documents({"role": "user", "subscription": "premium"})
+    recent_users = await db.users.find({"role": "user"}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(10).to_list(10)
+    for u in recent_users:
+        if "created_at" in u and isinstance(u["created_at"], datetime):
+            u["created_at"] = u["created_at"].isoformat()
+    return {
+        "total_users": total_users,
+        "total_admins": total_admins,
+        "total_looks": total_looks,
+        "total_messages": total_messages,
+        "total_tutorials": total_tutorials,
+        "subscriptions": {"free": free_users, "premium": premium_users},
+        "recent_users": recent_users,
+    }
+
 # Include router
 app.include_router(api_router)
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ─── STARTUP ───
 
@@ -387,128 +359,43 @@ async def startup():
     logger.info("ARIA backend started successfully")
 
 async def seed_admin():
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@aria.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_email = os.environ.get("ADMIN_EMAIL", "tom@gmail.com")
+    admin_password = os.environ.get("ADMIN_PASSWORD", "Tomcle62")
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
-        await db.users.insert_one({
-            "email": admin_email,
-            "password_hash": hash_password(admin_password),
-            "name": "Admin ARIA",
-            "city": "Paris",
-            "role": "admin",
-            "created_at": datetime.now(timezone.utc)
-        })
-        logger.info(f"Admin seeded: {admin_email}")
+        old_admin = await db.users.find_one({"role": "admin"})
+        if old_admin:
+            await db.users.update_one({"_id": old_admin["_id"]}, {"$set": {"email": admin_email, "password_hash": hash_password(admin_password), "name": "Tom", "city": "Paris", "subscription": "premium"}})
+            logger.info(f"Admin updated to: {admin_email}")
+        else:
+            await db.users.insert_one({"email": admin_email, "password_hash": hash_password(admin_password), "name": "Tom", "city": "Paris", "role": "admin", "subscription": "premium", "created_at": datetime.now(timezone.utc)})
+            logger.info(f"Admin seeded: {admin_email}")
+    else:
+        updates = {"role": "admin", "subscription": "premium"}
+        if not verify_password(admin_password, existing["password_hash"]):
+            updates["password_hash"] = hash_password(admin_password)
+        await db.users.update_one({"email": admin_email}, {"$set": updates})
 
 async def seed_tutorials():
+    first = await db.tutorials.find_one({})
+    if first and "premium" not in first:
+        await db.tutorials.drop()
+        logger.info("Dropped old tutorials (missing premium field)")
     count = await db.tutorials.count_documents({})
     if count == 0:
         tutorials = [
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Maquillage Naturel Quotidien",
-                "description": "Apprenez les bases d'un look naturel et frais pour tous les jours. Parfait pour les débutantes.",
-                "duration": "15 min",
-                "level": "Débutant",
-                "category": "Quotidien",
-                "image_index": 0,
-                "steps": [
-                    "Préparer la peau avec une crème hydratante",
-                    "Appliquer un fond de teint léger au pinceau",
-                    "Estomper avec une éponge humide",
-                    "Ajouter un blush rosé sur les pommettes",
-                    "Mascara léger sur les cils supérieurs",
-                    "Baume à lèvres teinté pour finir"
-                ]
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Smoky Eyes Élégant",
-                "description": "Maîtrisez le smoky eyes classique pour un regard intense et sophistiqué.",
-                "duration": "25 min",
-                "level": "Intermédiaire",
-                "category": "Soirée",
-                "image_index": 1,
-                "steps": [
-                    "Appliquer une base à paupières",
-                    "Poser une teinte claire sur toute la paupière",
-                    "Appliquer une ombre foncée dans le creux",
-                    "Estomper les transitions",
-                    "Liner fin le long des cils",
-                    "Mascara volumisant en plusieurs couches"
-                ]
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Contouring et Sculpting",
-                "description": "Sculptez votre visage comme une pro avec les techniques de contouring modernes.",
-                "duration": "20 min",
-                "level": "Intermédiaire",
-                "category": "Technique",
-                "image_index": 2,
-                "steps": [
-                    "Identifier la forme de votre visage",
-                    "Appliquer le contour sous les pommettes",
-                    "Éclaircir le centre du visage avec le highlighter",
-                    "Estomper avec un pinceau adapté",
-                    "Fixer avec une poudre translucide",
-                    "Ajouter un blush pour la touche finale"
-                ]
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Teint Parfait Zéro Défaut",
-                "description": "Obtenez un teint impeccable et lumineux grâce aux bonnes techniques de fond de teint.",
-                "duration": "18 min",
-                "level": "Débutant",
-                "category": "Base",
-                "image_index": 0,
-                "steps": [
-                    "Nettoyer et hydrater la peau",
-                    "Appliquer un primer adapté à votre type de peau",
-                    "Choisir le bon fond de teint",
-                    "Appliquer avec un pinceau ou une éponge",
-                    "Corriger les imperfections au correcteur",
-                    "Fixer avec un spray fixateur"
-                ]
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Lèvres Parfaites",
-                "description": "Tous les secrets pour des lèvres sublimes : liner, rouge à lèvres et gloss.",
-                "duration": "12 min",
-                "level": "Débutant",
-                "category": "Lèvres",
-                "image_index": 1,
-                "steps": [
-                    "Exfolier délicatement les lèvres",
-                    "Appliquer un baume hydratant",
-                    "Dessiner le contour avec un crayon à lèvres",
-                    "Remplir avec le rouge à lèvres",
-                    "Estomper pour un rendu naturel",
-                    "Ajouter une touche de gloss au centre"
-                ]
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Maquillage de Soirée Glamour",
-                "description": "Un look sophistiqué et glamour pour briller lors de vos soirées spéciales.",
-                "duration": "30 min",
-                "level": "Avancé",
-                "category": "Soirée",
-                "image_index": 2,
-                "steps": [
-                    "Base parfaite avec primer illuminateur",
-                    "Fond de teint longue tenue",
-                    "Yeux charbonneux avec paillettes",
-                    "Faux cils pour un regard dramatique",
-                    "Contouring prononcé",
-                    "Rouge à lèvres bold",
-                    "Highlighter stratégique",
-                    "Spray fixateur longue durée"
-                ]
-            }
+            {"id": str(uuid.uuid4()), "title": "Maquillage Naturel Quotidien", "description": "Les bases d'un look naturel et frais pour tous les jours.", "duration": "15 min", "level": "Débutant", "category": "Quotidien", "premium": False, "image_index": 0,
+             "steps": ["Préparer la peau avec une crème hydratante", "Appliquer un fond de teint léger au pinceau", "Estomper avec une éponge humide", "Ajouter un blush rosé sur les pommettes", "Mascara léger sur les cils", "Baume à lèvres teinté"]},
+            {"id": str(uuid.uuid4()), "title": "Smoky Eyes Élégant", "description": "Maîtrisez le smoky eyes classique pour un regard intense.", "duration": "25 min", "level": "Intermédiaire", "category": "Soirée", "premium": False, "image_index": 1,
+             "steps": ["Appliquer une base à paupières", "Poser une teinte claire sur la paupière", "Appliquer une ombre foncée dans le creux", "Estomper les transitions", "Liner fin le long des cils", "Mascara volumisant"]},
+            {"id": str(uuid.uuid4()), "title": "Contouring et Sculpting", "description": "Sculptez votre visage comme une pro.", "duration": "20 min", "level": "Intermédiaire", "category": "Technique", "premium": True, "image_index": 2,
+             "steps": ["Identifier la forme de votre visage", "Appliquer le contour sous les pommettes", "Éclaircir le centre avec le highlighter", "Estomper avec un pinceau adapté", "Fixer avec poudre translucide", "Blush pour la touche finale"]},
+            {"id": str(uuid.uuid4()), "title": "Teint Parfait Zéro Défaut", "description": "Un teint impeccable et lumineux.", "duration": "18 min", "level": "Débutant", "category": "Base", "premium": False, "image_index": 0,
+             "steps": ["Nettoyer et hydrater la peau", "Appliquer un primer adapté", "Choisir le bon fond de teint", "Appliquer au pinceau ou éponge", "Corriger les imperfections", "Fixer avec un spray fixateur"]},
+            {"id": str(uuid.uuid4()), "title": "Lèvres Parfaites", "description": "Tous les secrets pour des lèvres sublimes.", "duration": "12 min", "level": "Débutant", "category": "Lèvres", "premium": False, "image_index": 1,
+             "steps": ["Exfolier délicatement les lèvres", "Appliquer un baume hydratant", "Dessiner le contour au crayon", "Remplir avec le rouge à lèvres", "Estomper pour un rendu naturel", "Gloss au centre"]},
+            {"id": str(uuid.uuid4()), "title": "Maquillage de Soirée Glamour", "description": "Un look sophistiqué pour vos soirées.", "duration": "30 min", "level": "Avancé", "category": "Soirée", "premium": True, "image_index": 2,
+             "steps": ["Base avec primer illuminateur", "Fond de teint longue tenue", "Yeux charbonneux avec paillettes", "Faux cils dramatiques", "Contouring prononcé", "Rouge à lèvres bold", "Highlighter stratégique", "Spray fixateur"]},
         ]
         await db.tutorials.insert_many(tutorials)
         logger.info(f"Seeded {len(tutorials)} tutorials")

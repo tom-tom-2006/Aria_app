@@ -22,7 +22,7 @@ def admin_token(base_url, api_client):
     """Get admin token for authenticated tests"""
     response = api_client.post(
         f"{base_url}/api/auth/login",
-        json={"email": "admin@aria.com", "password": "admin123"}
+        json={"email": "tom@gmail.com", "password": "Tomcle62"}
     )
     if response.status_code == 200:
         return response.json()["access_token"]

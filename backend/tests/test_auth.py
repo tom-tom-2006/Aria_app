@@ -10,7 +10,7 @@ class TestAuthEndpoints:
         """Test admin can login with correct credentials"""
         response = api_client.post(
             f"{base_url}/api/auth/login",
-            json={"email": "admin@aria.com", "password": "admin123"}
+            json={"email": "tom@gmail.com", "password": "Tomcle62"}
         )
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         
@@ -18,14 +18,14 @@ class TestAuthEndpoints:
         assert "access_token" in data, "Missing access_token in response"
         assert "refresh_token" in data, "Missing refresh_token in response"
         assert "user" in data, "Missing user in response"
-        assert data["user"]["email"] == "admin@aria.com"
+        assert data["user"]["email"] == "tom@gmail.com"
         assert data["user"]["role"] == "admin"
 
     def test_login_wrong_password(self, base_url, api_client):
         """Test login fails with wrong password"""
         response = api_client.post(
             f"{base_url}/api/auth/login",
-            json={"email": "admin@aria.com", "password": "wrongpassword"}
+            json={"email": "tom@gmail.com", "password": "wrongpassword"}
         )
         assert response.status_code == 401, f"Expected 401, got {response.status_code}"
 
@@ -81,7 +81,7 @@ class TestAuthEndpoints:
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         
         data = response.json()
-        assert data["email"] == "admin@aria.com"
+        assert data["email"] == "tom@gmail.com"
         assert data["role"] == "admin"
         assert "password_hash" not in data, "Password hash should not be in response"
         assert "_id" not in data, "MongoDB _id should not be in response"

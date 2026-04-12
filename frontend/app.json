@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
+        "NSCameraUsageDescription": "Studio maquillage avec guidage IA",
         "NSLocationWhenInUseUsageDescription": "Localiser votre ville pour la météo"
       }
     },
@@ -20,7 +21,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "permissions": ["ACCESS_FINE_LOCATION"]
+      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION"]
     },
     "web": {
       "bundler": "metro",
@@ -36,6 +37,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#000000"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Studio maquillage avec guidage IA"
         }
       ]
     ],
