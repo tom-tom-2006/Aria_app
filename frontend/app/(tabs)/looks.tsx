@@ -111,8 +111,8 @@ export default function LooksScreen() {
             <View style={s.cardHeader}>
               <View style={s.cardIcon}><Ionicons name="color-palette" size={20} color="#FF2D55" /></View>
               <View style={s.cardInfo}><Text style={s.cardName}>{look.name}</Text><Text style={s.cardDate}>{look.created_at ? new Date(look.created_at).toLocaleDateString('fr-FR') : ''}</Text></View>
-              <TouchableOpacity testID={`del-${look.id}`} onPress={() => handleDelete(look.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+              <TouchableOpacity testID={`del-${look.id}`} onPress={() => handleDelete(look.id)} style={s.deleteBtn}>
+                <Ionicons name="trash-outline" size={22} color="#FF3B30" />
               </TouchableOpacity>
             </View>
             <View style={s.productList}>
@@ -217,7 +217,7 @@ const s = StyleSheet.create({
   productLabel: { fontSize: 14, color: '#000' },
   shadeTxt: { color: '#8E8E93' },
   notes: { fontSize: 14, color: '#8E8E93', marginTop: 12, fontStyle: 'italic' },
-  // Modal
+  deleteBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#FFF5F5', justifyContent: 'center', alignItems: 'center' },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   modalBox: { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, maxHeight: '90%' },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E5E5EA', alignSelf: 'center', marginTop: 12, marginBottom: 8 },

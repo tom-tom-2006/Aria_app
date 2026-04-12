@@ -1,8 +1,10 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, SafeAreaView } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import { Camera } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FACEMESH_HTML = `<!DOCTYPE html>
 <html><head>
@@ -65,7 +67,7 @@ drawConnectors(ctx,lm,FACEMESH_LEFT_EYE,{color:'#FF2D5540',lineWidth:1});
 drawConnectors(ctx,lm,FACEMESH_FACE_OVAL,{color:'#FF2D5525',lineWidth:1});
 drawConnectors(ctx,lm,FACEMESH_LIPS,{color:'#FF2D5550',lineWidth:1.5});
 drawMakeup(lm,w,h);
-st.textContent='468 points • Face Mesh actif';st.style.display='block';ld.style.display='none'}
+st.textContent='468 points \\u2022 Face Mesh actif';st.style.display='block';ld.style.display='none'}
 else{st.textContent='Recherche du visage...';st.style.display='block'}
 ctx.restore()}
 var fm=new FaceMesh({locateFile:function(f){return'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/'+f}});
@@ -74,7 +76,7 @@ fm.onResults(onR);
 async function start(){try{
 var s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}});
 v.srcObject=s;v.onloadedmetadata=function(){cv.width=v.videoWidth;cv.height=v.videoHeight;v.play();loop()}}
-catch(e){ld.innerHTML='<div style="color:#FF2D55;font-size:18px">Caméra non disponible</div><div style="margin-top:8px;font-size:14px">Autorisez l\\'accès caméra</div>'}}
+catch(e){ld.innerHTML='<div style="color:#FF2D55;font-size:18px">Caméra non disponible</div><div style="margin-top:8px;font-size:14px">Vérifiez les permissions</div>'}}
 async function loop(){if(v.readyState>=2)await fm.send({image:v});requestAnimationFrame(loop)}
 start();
 </script></body></html>`;
@@ -83,24 +85,65 @@ type Sel = { category: string; product: string; shade: string; shadeColor: strin
 
 export default function StudioScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ products?: string; tutorialTitle?: string }>();
   const webRef = useRef<WebView>(null);
+  const [cameraGranted, setCameraGranted] = useState<boolean | null>(null);
 
   const selections: Sel[] = params.products ? JSON.parse(params.products) : [];
   const tutorialTitle = params.tutorialTitle || null;
+  const isWeb = Platform.OS === 'web';
 
+  // Request camera permission on mount (for mobile - so WebView can use it)
   useEffect(() => {
-    // Send product data to WebView once loaded
-    const timer = setTimeout(() => {
-      if (webRef.current) {
-        webRef.current.postMessage(JSON.stringify({ type: 'products', products: selections }));
+    (async () => {
+      if (isWeb) {
+        setCameraGranted(true); // On web, the iframe handles its own permissions
+        return;
       }
-    }, 2000);
-    return () => clearTimeout(timer);
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      setCameraGranted(status === 'granted');
+    })();
   }, []);
 
-  // For web, use iframe; for mobile, use WebView
-  const isWeb = Platform.OS === 'web';
+  useEffect(() => {
+    if (cameraGranted && webRef.current) {
+      const timer = setTimeout(() => {
+        webRef.current?.postMessage(JSON.stringify({ type: 'products', products: selections }));
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [cameraGranted]);
+
+  // Permission not yet determined
+  if (cameraGranted === null) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#FF2D55" />
+          <Text style={styles.permText}>Demande d'accès caméra...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Permission denied
+  if (!cameraGranted && !isWeb) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.center}>
+          <View style={styles.permIconBox}>
+            <Ionicons name="camera-outline" size={48} color="#FF2D55" />
+          </View>
+          <Text style={styles.permTitle}>Accès caméra requis</Text>
+          <Text style={styles.permDesc}>ARIA a besoin de votre caméra pour le studio maquillage. Activez-la dans les réglages de votre téléphone.</Text>
+          <TouchableOpacity style={styles.permBtn} onPress={() => router.back()}>
+            <Text style={styles.permBtnText}>Retour</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -119,12 +162,13 @@ export default function StudioScreen() {
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
           mediaCapturePermissionGrantType="grant"
+          androidLayerType="hardware"
           onMessage={() => {}}
         />
       )}
 
       {/* Top overlay */}
-      <SafeAreaView style={styles.topOverlay}>
+      <View style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity testID="studio-back-button" onPress={() => router.back()} style={styles.topBtn}>
             <Ionicons name="chevron-back" size={26} color="#FFF" />
@@ -134,7 +178,7 @@ export default function StudioScreen() {
             <Ionicons name="sparkles" size={20} color="#FF2D55" />
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -142,8 +186,15 @@ export default function StudioScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   webview: { flex: 1, backgroundColor: '#000' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  permText: { color: '#8E8E93', fontSize: 16, marginTop: 16 },
+  permIconBox: { width: 100, height: 100, borderRadius: 32, backgroundColor: '#1A1A1A', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  permTitle: { fontSize: 24, fontWeight: '700', color: '#FFF', marginBottom: 12 },
+  permDesc: { fontSize: 15, color: '#8E8E93', textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  permBtn: { backgroundColor: '#FF2D55', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 16 },
+  permBtnText: { fontSize: 17, fontWeight: '600', color: '#FFF' },
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 8 : 40, paddingBottom: 12 },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12 },
   topBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   studioLabel: { fontSize: 17, fontWeight: '600', color: '#FFF' },
 });
