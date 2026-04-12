@@ -99,7 +99,7 @@ class ChatInput(BaseModel):
 
 class SavedLookInput(BaseModel):
     name: str
-    products: List[str]
+    products: list
     notes: Optional[str] = ""
 
 # App setup
