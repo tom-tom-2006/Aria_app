@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { apiCall } from '../../utils/api';
 import { useAuth } from '../../context/AuthContext';
 import { CATEGORIES, Selection } from '../../constants/products';
@@ -12,6 +13,7 @@ type SavedLook = { id: string; name: string; products: Selection[]; notes: strin
 
 export default function LooksScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [looks, setLooks] = useState<SavedLook[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -124,6 +126,11 @@ export default function LooksScreen() {
               ))}
             </View>
             {look.notes ? <Text style={s.notes}>{look.notes}</Text> : null}
+              <TouchableOpacity testID={`use-look-${look.id}`} style={s.useBtn}
+                onPress={() => router.push({ pathname: '/studio', params: { products: JSON.stringify(look.products || []) } })}>
+                <Ionicons name="play-circle" size={18} color="#FFF" />
+                <Text style={s.useBtnText}>Utiliser ce look</Text>
+              </TouchableOpacity>
           </View>
         ))}
         <View style={{ height: 120 }} />
@@ -217,6 +224,8 @@ const s = StyleSheet.create({
   productLabel: { fontSize: 14, color: '#000' },
   shadeTxt: { color: '#8E8E93' },
   notes: { fontSize: 14, color: '#8E8E93', marginTop: 12, fontStyle: 'italic' },
+  useBtn: { backgroundColor: '#FF2D55', borderRadius: 14, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14 },
+  useBtnText: { fontSize: 15, fontWeight: '600', color: '#FFF' },
   deleteBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#FFF5F5', justifyContent: 'center', alignItems: 'center' },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   modalBox: { backgroundColor: '#FFF', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, maxHeight: '90%' },

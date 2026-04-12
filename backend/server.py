@@ -344,6 +344,48 @@ async def get_admin_stats(user=Depends(get_current_user)):
         "recent_users": recent_users,
     }
 
+# ─── SKIN ANALYSIS (Premium) ───
+
+class SkinAnalysisInput(BaseModel):
+    image: str
+
+@api_router.post("/skin-analysis")
+async def analyze_skin(data: SkinAnalysisInput, user=Depends(get_current_user)):
+    if user.get("subscription") != "premium":
+        raise HTTPException(status_code=403, detail="Fonctionnalité réservée aux abonnés Premium")
+    system_msg = """Tu es ARIA, experte en dermatologie cosmétique et soins de la peau.
+Analyse cette photo du visage et fournis un diagnostic complet.
+Réponds UNIQUEMENT en JSON valide (pas de texte avant/après) avec cette structure exacte:
+{"type":"type de peau","observations":["observation 1","observation 2","observation 3"],"score":75,"products":[{"name":"nom produit","brand":"marque","reason":"raison"}],"routine":{"morning":["étape 1","étape 2"],"evening":["étape 1","étape 2"]},"summary":"résumé en 2 phrases"}
+- type: sèche, grasse, mixte, normale ou sensible
+- score: santé de la peau sur 100
+- products: 3 à 5 produits avec marques réelles (La Roche-Posay, CeraVe, Nuxe, Bioderma, etc.)
+- routine: 3-4 étapes matin et soir"""
+    try:
+        import json as json_mod
+        llm_chat = LlmChat(
+            api_key=os.environ["EMERGENT_LLM_KEY"],
+            session_id=f"skin-{uuid.uuid4().hex[:8]}",
+            system_message=system_msg
+        ).with_model("openai", "gpt-5.2")
+        image_url = f"data:image/jpeg;base64,{data.image}"
+        user_msg = UserMessage(text="Analyse cette photo de mon visage pour évaluer l'état de ma peau et recommander des produits adaptés.", image_urls=[image_url])
+        response_text = await llm_chat.send_message(user_msg)
+        try:
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
+            analysis = json_mod.loads(clean)
+        except Exception:
+            analysis = {"type": "mixte", "observations": ["Analyse textuelle disponible"], "score": 70, "products": [], "routine": {"morning": [], "evening": []}, "summary": response_text[:300]}
+        await db.skin_analyses.insert_one({"user_id": user["id"], "analysis": analysis, "created_at": datetime.now(timezone.utc)})
+        return {"analysis": analysis}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Skin analysis error: {e}")
+        raise HTTPException(status_code=500, detail="Erreur lors de l'analyse")
+
 # Include router
 app.include_router(api_router)
 
