@@ -74,7 +74,7 @@ export default function SubscriptionScreen() {
           <>
             <View style={styles.promoCard}>
               <Text style={styles.promoLabel}>ARIA PREMIUM</Text>
-              <Text style={styles.promoPrice}>9,99€<Text style={styles.promoPer}>/mois</Text></Text>
+              <Text style={styles.promoPrice}>6,99€<Text style={styles.promoPer}>/mois</Text></Text>
               <Text style={styles.promoDesc}>Débloquez tout le potentiel d'ARIA</Text>
             </View>
             <View style={styles.featuresSection}>
@@ -89,7 +89,7 @@ export default function SubscriptionScreen() {
               {loading ? <ActivityIndicator color="#FFF" /> : polling ? (
                 <><ActivityIndicator color="#FFF" size="small" /><Text style={styles.subBtnText}>Vérification du paiement...</Text></>
               ) : (
-                <><Ionicons name="diamond" size={20} color="#FFF" /><Text style={styles.subBtnText}>S'abonner — 9,99€/mois</Text></>
+                <><Ionicons name="diamond" size={20} color="#FFF" /><Text style={styles.subBtnText}>S'abonner — 6,99€/mois</Text></>
               )}
             </TouchableOpacity>
           </>

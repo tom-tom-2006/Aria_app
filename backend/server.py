@@ -245,13 +245,13 @@ Types: sèche, grasse, mixte, normale, sensible. Score /100. 3-5 produits marque
 # ─── CONTACT ───
 @api_router.post("/contact")
 async def submit_contact(data: ContactInput, user=Depends(get_current_user)):
-    doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user.get("name",""), "user_email": user.get("email",""), "subject": data.subject, "message": data.message, "status": "new", "admin_email": "tom.clement0814@gmail.com", "created_at": datetime.now(timezone.utc)}
+    doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user.get("name",""), "user_email": user.get("email",""), "subject": data.subject, "message": data.message, "status": "new", "admin_email": "aria.administration@gmail.com", "created_at": datetime.now(timezone.utc)}
     await db.contact_requests.insert_one(doc)
     doc.pop("_id", None); doc["created_at"] = doc["created_at"].isoformat()
     return {"message": "Message envoyé", "contact": doc}
 
 # ─── STRIPE PAYMENT ───
-PREMIUM_PRICE = 9.99
+PREMIUM_PRICE = 6.99
 
 @api_router.post("/payment/create-checkout")
 async def create_checkout(request: Request, user=Depends(get_current_user)):

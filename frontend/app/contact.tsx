@@ -19,7 +19,7 @@ export default function ContactScreen() {
       // Save to DB
       const resp = await apiCall('/api/contact', { method: 'POST', body: JSON.stringify({ subject: subject.trim(), message: message.trim() }) });
       // Also open native email
-      const mailTo = `mailto:tom.clement0814@gmail.com?subject=${encodeURIComponent(`[ARIA] ${subject.trim()}`)}&body=${encodeURIComponent(`De: ${user?.name} (${user?.email})\n\n${message.trim()}`)}`;
+      const mailTo = `mailto:aria.administration@gmail.com?subject=${encodeURIComponent(`[ARIA] ${subject.trim()}`)}&body=${encodeURIComponent(`De: ${user?.name} (${user?.email})\n\n${message.trim()}`)}`;
       await Linking.openURL(mailTo);
       if (resp.ok) {
         Alert.alert('Envoyé !', 'Votre message a été enregistré et l\'app email s\'est ouverte pour confirmer l\'envoi.', [{ text: 'OK', onPress: () => router.back() }]);
