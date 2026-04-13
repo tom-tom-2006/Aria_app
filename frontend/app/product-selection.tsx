@@ -24,7 +24,7 @@ export default function ProductSelectionScreen() {
     selections.some(s => s.category === catName && s.product === prodName && s.shade === shadeName);
 
   const launchStudio = () => {
-    router.push({ pathname: '/studio', params: { products: JSON.stringify(selections) } });
+    router.push({ pathname: '/product-order', params: { products: JSON.stringify(selections) } });
   };
 
   return (

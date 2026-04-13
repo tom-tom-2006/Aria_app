@@ -92,7 +92,7 @@ export default function HomeScreen() {
         <Text style={styles.sectionTitle}>Accès rapide</Text>
         <View style={styles.actionsGrid}>
           {/* Gold Subscription Card */}
-          <TouchableOpacity testID="quick-action-subscription" style={styles.goldCard} onPress={() => router.push('/(tabs)/profile')} activeOpacity={0.85}>
+          <TouchableOpacity testID="quick-action-subscription" style={styles.goldCard} onPress={() => router.push('/subscription')} activeOpacity={0.85}>
             <View style={styles.goldIconBox}><Ionicons name="diamond" size={22} color="#B8860B" /></View>
             <Text style={styles.goldText}>{isPremium ? 'Mon abonnement' : 'Passer Premium'}</Text>
             <Text style={styles.goldSub}>{isPremium ? 'Premium actif' : 'Débloquer tout'}</Text>

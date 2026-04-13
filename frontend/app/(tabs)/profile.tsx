@@ -11,6 +11,7 @@ import { apiCall } from '../../utils/api';
 export default function ProfileScreen() {
   const { user, logout, updateUser } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -19,6 +20,22 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
 
   const handleLogout = async () => { await logout(); router.replace('/(auth)/login'); };
+
+  const pickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permission requise', 'Autorisez l\'accès galerie'); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.3, base64: true, allowsEditing: true, aspect: [1, 1] });
+    if (!r.canceled && r.assets[0]?.base64) {
+      try {
+        const resp = await apiCall('/api/auth/profile', { method: 'PUT', body: JSON.stringify({ avatar: r.assets[0].base64 }) });
+        if (resp.ok) {
+          const u = await resp.json();
+          await updateUser({ id: u.id, email: u.email, name: u.name, city: u.city, role: u.role, avatar: u.avatar } as any);
+          Alert.alert('Photo mise à jour !');
+        }
+      } catch (e) { Alert.alert('Erreur'); }
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -63,7 +80,14 @@ export default function ProfileScreen() {
 
           {/* Avatar Card */}
           <View style={styles.avatarCard}>
-            <View style={styles.avatarCircle}><Text style={styles.avatarText}>{user?.name ? getInitials(user.name) : 'U'}</Text></View>
+            <TouchableOpacity testID="pick-avatar-button" onPress={pickAvatar} style={styles.avatarTouchable}>
+              {(user as any)?.avatar ? (
+                <Image source={{ uri: `data:image/jpeg;base64,${(user as any).avatar}` }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarCircle}><Text style={styles.avatarText}>{user?.name ? getInitials(user.name) : 'U'}</Text></View>
+              )}
+              <View style={styles.cameraBadge}><Ionicons name="camera" size={14} color="#FFF" /></View>
+            </TouchableOpacity>
             <View style={styles.avatarInfo}>
               {editing ? (
                 <TextInput testID="edit-name-input" style={styles.editInput} value={name} onChangeText={setName} placeholder="Nom" placeholderTextColor="#8E8E93" />
@@ -136,6 +160,16 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           )}
 
+          {/* Contact Admin */}
+          <TouchableOpacity testID="contact-admin-button" style={styles.contactButton} onPress={() => router.push('/contact')}>
+            <Ionicons name="headset" size={20} color="#FF2D55" />
+            <View style={styles.contactInfo}>
+              <Text style={styles.contactLabel}>Contacter l'assistance</Text>
+              <Text style={styles.contactSub}>En cas de problème de compte</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#C7C7CC" />
+          </TouchableOpacity>
+
           {/* Logout */}
           <TouchableOpacity testID="logout-button" style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.7}>
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
@@ -157,7 +191,10 @@ const styles = StyleSheet.create({
   editBtn: { fontSize: 16, fontWeight: '600', color: '#FF2D55' },
   // Avatar
   avatarCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F7', borderRadius: 24, padding: 24, marginBottom: 16 },
-  avatarCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', marginRight: 18 },
+  avatarTouchable: { position: 'relative', marginRight: 18 },
+  avatarImage: { width: 64, height: 64, borderRadius: 32 },
+  avatarCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  cameraBadge: { position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: 12, backgroundColor: '#FF2D55', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#F2F2F7' },
   avatarText: { fontSize: 24, fontWeight: '600', color: '#FF2D55' },
   avatarInfo: { flex: 1 },
   avatarName: { fontSize: 22, fontWeight: '700', color: '#000', marginBottom: 4 },
@@ -185,6 +222,11 @@ const styles = StyleSheet.create({
   adminInfo: { flex: 1 },
   adminLabel: { fontSize: 16, fontWeight: '600', color: '#FFF' },
   adminSub: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
+  // Contact
+  contactButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F7', borderRadius: 16, padding: 18, gap: 14, marginBottom: 16 },
+  contactInfo: { flex: 1 },
+  contactLabel: { fontSize: 15, fontWeight: '600', color: '#000' },
+  contactSub: { fontSize: 12, color: '#8E8E93', marginTop: 2 },
   // Logout
   logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#FFF5F5', borderRadius: 16, paddingVertical: 16 },
   logoutText: { fontSize: 16, fontWeight: '600', color: '#FF3B30' },

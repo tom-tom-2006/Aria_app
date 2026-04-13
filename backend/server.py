@@ -1,447 +1,336 @@
 from dotenv import load_dotenv
 from pathlib import Path
-
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends
+from fastapi.responses import HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
+import os, logging, uuid, httpx, json as json_mod
 from pydantic import BaseModel, Field
 from typing import List, Optional
-import uuid
 from datetime import datetime, timezone, timedelta
-import bcrypt
-import jwt
-import httpx
+import bcrypt, jwt
 from bson import ObjectId
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 
-# MongoDB
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'aria_db')]
-
-# JWT
 JWT_ALGORITHM = "HS256"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def get_jwt_secret():
-    return os.environ["JWT_SECRET"]
-
-def hash_password(password: str) -> str:
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-
-def create_access_token(user_id: str, email: str) -> str:
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
-        "type": "access"
-    }
-    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
-
-def create_refresh_token(user_id: str) -> str:
-    payload = {
-        "sub": user_id,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7),
-        "type": "refresh"
-    }
-    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+def get_jwt_secret(): return os.environ["JWT_SECRET"]
+def hash_password(p): return bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
+def verify_password(p, h): return bcrypt.checkpw(p.encode(), h.encode())
+def create_access_token(uid, email):
+    return jwt.encode({"sub": uid, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"}, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+def create_refresh_token(uid):
+    return jwt.encode({"sub": uid, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 async def get_current_user(request: Request) -> dict:
-    auth_header = request.headers.get("Authorization", "")
-    token = None
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
+    if not token: raise HTTPException(401, "Not authenticated")
     try:
-        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+        p = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if p.get("type") != "access": raise HTTPException(401, "Invalid token")
+        user = await db.users.find_one({"_id": ObjectId(p["sub"])})
+        if not user: raise HTTPException(401, "User not found")
         user["id"] = str(user.pop("_id"))
         user.pop("password_hash", None)
         return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except jwt.ExpiredSignatureError: raise HTTPException(401, "Token expired")
+    except jwt.InvalidTokenError: raise HTTPException(401, "Invalid token")
 
-# Pydantic Models
+def build_user_response(doc, uid, email):
+    return {"id": uid, "email": email, "name": doc.get("name",""), "city": doc.get("city",""), "role": doc.get("role","user"), "subscription": doc.get("subscription","free"), "avatar": doc.get("avatar","")}
+
+# Models
 class RegisterInput(BaseModel):
-    email: str
-    password: str
-    name: str
-    city: str
-
+    email: str; password: str; name: str; city: str
 class LoginInput(BaseModel):
-    email: str
-    password: str
-
+    email: str; password: str
 class ProfileUpdateInput(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    city: Optional[str] = None
-    password: Optional[str] = None
-
+    name: Optional[str] = None; email: Optional[str] = None; city: Optional[str] = None; password: Optional[str] = None; avatar: Optional[str] = None
 class ChatInput(BaseModel):
-    message: str
-    session_id: Optional[str] = None
-
+    message: str; session_id: Optional[str] = None
 class SavedLookInput(BaseModel):
-    name: str
-    products: list
-    notes: Optional[str] = ""
+    name: str; products: list; notes: Optional[str] = ""
+class SkinAnalysisInput(BaseModel):
+    image: str
+class ContactInput(BaseModel):
+    subject: str; message: str
 
-# App setup
 app = FastAPI(title="ARIA API")
 api_router = APIRouter(prefix="/api")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# ─── AUTH ENDPOINTS ───
-
-def build_user_response(user_doc, user_id, email):
-    return {
-        "id": user_id,
-        "email": email,
-        "name": user_doc.get("name", ""),
-        "city": user_doc.get("city", ""),
-        "role": user_doc.get("role", "user"),
-        "subscription": user_doc.get("subscription", "free"),
-    }
-
+# ─── AUTH ───
 @api_router.post("/auth/register")
 async def register(data: RegisterInput):
     email = data.email.lower().strip()
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email déjà enregistré")
-    user_doc = {
-        "email": email,
-        "password_hash": hash_password(data.password),
-        "name": data.name.strip(),
-        "city": data.city.strip(),
-        "role": "user",
-        "subscription": "free",
-        "created_at": datetime.now(timezone.utc)
-    }
-    result = await db.users.insert_one(user_doc)
-    user_id = str(result.inserted_id)
-    access = create_access_token(user_id, email)
-    refresh = create_refresh_token(user_id)
-    return {
-        "access_token": access,
-        "refresh_token": refresh,
-        "user": build_user_response(user_doc, user_id, email)
-    }
+    if await db.users.find_one({"email": email}): raise HTTPException(400, "Email déjà enregistré")
+    doc = {"email": email, "password_hash": hash_password(data.password), "name": data.name.strip(), "city": data.city.strip(), "role": "user", "subscription": "free", "avatar": "", "created_at": datetime.now(timezone.utc)}
+    r = await db.users.insert_one(doc)
+    uid = str(r.inserted_id)
+    return {"access_token": create_access_token(uid, email), "refresh_token": create_refresh_token(uid), "user": build_user_response(doc, uid, email)}
 
 @api_router.post("/auth/login")
 async def login(data: LoginInput):
     email = data.email.lower().strip()
     user = await db.users.find_one({"email": email})
-    if not user:
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-    if not verify_password(data.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-    user_id = str(user["_id"])
-    access = create_access_token(user_id, email)
-    refresh = create_refresh_token(user_id)
-    return {
-        "access_token": access,
-        "refresh_token": refresh,
-        "user": build_user_response(user, user_id, email)
-    }
+    if not user or not verify_password(data.password, user["password_hash"]): raise HTTPException(401, "Email ou mot de passe incorrect")
+    uid = str(user["_id"])
+    return {"access_token": create_access_token(uid, email), "refresh_token": create_refresh_token(uid), "user": build_user_response(user, uid, email)}
 
 @api_router.get("/auth/me")
-async def get_me(user=Depends(get_current_user)):
-    return user
+async def get_me(user=Depends(get_current_user)): return user
 
 @api_router.put("/auth/profile")
 async def update_profile(data: ProfileUpdateInput, user=Depends(get_current_user)):
-    update_fields = {}
-    if data.name is not None:
-        update_fields["name"] = data.name.strip()
-    if data.city is not None:
-        update_fields["city"] = data.city.strip()
+    upd = {}
+    if data.name is not None: upd["name"] = data.name.strip()
+    if data.city is not None: upd["city"] = data.city.strip()
+    if data.avatar is not None: upd["avatar"] = data.avatar
     if data.email is not None:
-        new_email = data.email.lower().strip()
-        if new_email != user.get("email"):
-            existing = await db.users.find_one({"email": new_email})
-            if existing:
-                raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
-            update_fields["email"] = new_email
+        ne = data.email.lower().strip()
+        if ne != user.get("email") and await db.users.find_one({"email": ne}): raise HTTPException(400, "Email déjà utilisé")
+        if ne != user.get("email"): upd["email"] = ne
     if data.password is not None:
-        if len(data.password) < 6:
-            raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
-        update_fields["password_hash"] = hash_password(data.password)
+        if len(data.password) < 6: raise HTTPException(400, "Mot de passe trop court")
+        upd["password_hash"] = hash_password(data.password)
+    if not upd: raise HTTPException(400, "Aucune modification")
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": upd})
+    u = await db.users.find_one({"_id": ObjectId(user["id"])})
+    u["id"] = str(u.pop("_id")); u.pop("password_hash", None)
+    return u
 
-    if not update_fields:
-        raise HTTPException(status_code=400, detail="Aucune modification fournie")
-
-    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": update_fields})
-    updated = await db.users.find_one({"_id": ObjectId(user["id"])})
-    updated["id"] = str(updated.pop("_id"))
-    updated.pop("password_hash", None)
-    return updated
-
-# ─── WEATHER ENDPOINT ───
-
+# ─── WEATHER ───
 @api_router.get("/weather")
 async def get_weather(city: str):
     try:
-        async with httpx.AsyncClient(timeout=10.0) as http_client:
-            geo_resp = await http_client.get(
-                "https://geocoding-api.open-meteo.com/v1/search",
-                params={"name": city, "count": 1}
-            )
-            geo_data = geo_resp.json()
-            if "results" not in geo_data or len(geo_data["results"]) == 0:
-                raise HTTPException(status_code=404, detail="Ville non trouvée")
-            lat = geo_data["results"][0]["latitude"]
-            lon = geo_data["results"][0]["longitude"]
-            city_name = geo_data["results"][0]["name"]
-            weather_resp = await http_client.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={"latitude": lat, "longitude": lon, "current_weather": True, "hourly": "relative_humidity_2m", "forecast_days": 1}
-            )
-            weather_data = weather_resp.json()
-            current = weather_data["current_weather"]
-            temp = current["temperature"]
-            wcode = current.get("weathercode", 0)
-            if temp < 5:
-                advice = "Temps très froid ! Appliquez une crème riche et protectrice. Hydratez intensément votre peau."
-                icon = "snow"
-            elif temp < 15:
-                advice = "Temps frais. Hydratez bien votre peau et utilisez un sérum nourrissant avant votre maquillage."
-                icon = "cloud"
-            elif temp < 25:
-                advice = "Température idéale ! Crème hydratante légère et SPF 30 minimum."
-                icon = "partly-sunny"
-            elif temp < 35:
-                advice = "Il fait chaud ! Maquillage léger et waterproof. N'oubliez pas le SPF 50."
-                icon = "sunny"
-            else:
-                advice = "Canicule ! Évitez le maquillage lourd, hydratation et protection solaire maximale."
-                icon = "sunny"
-            if wcode in [71, 73, 75, 77, 85, 86]: icon = "snow"
-            elif wcode in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]: icon = "rainy"
-            elif wcode in [95, 96, 99]: icon = "thunderstorm"
-            elif wcode in [45, 48]: icon = "cloud"
-            elif wcode in [1, 2, 3]: icon = "partly-sunny"
-            humidity_list = weather_data.get("hourly", {}).get("relative_humidity_2m", [50])
-            humidity = humidity_list[0] if humidity_list else 50
-            return {"city": city_name, "temperature": temp, "humidity": humidity, "weather_code": wcode, "icon": icon, "skin_advice": advice}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Weather API error: {e}")
-        raise HTTPException(status_code=500, detail="Impossible de récupérer la météo")
+        async with httpx.AsyncClient(timeout=10.0) as hc:
+            gr = await hc.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": city, "count": 1})
+            gd = gr.json()
+            if "results" not in gd or not gd["results"]: raise HTTPException(404, "Ville non trouvée")
+            lat, lon, cn = gd["results"][0]["latitude"], gd["results"][0]["longitude"], gd["results"][0]["name"]
+            wr = await hc.get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current_weather": True, "hourly": "relative_humidity_2m", "forecast_days": 1})
+            wd = wr.json(); c = wd["current_weather"]; t = c["temperature"]; wc = c.get("weathercode", 0)
+            if t < 5: adv, ic = "Temps très froid ! Crème riche et protectrice.", "snow"
+            elif t < 15: adv, ic = "Temps frais. Hydratez bien et sérum nourrissant.", "cloud"
+            elif t < 25: adv, ic = "Idéal ! Crème légère et SPF 30 minimum.", "partly-sunny"
+            elif t < 35: adv, ic = "Chaud ! Maquillage léger, waterproof, SPF 50.", "sunny"
+            else: adv, ic = "Canicule ! Hydratation max, pas de maquillage lourd.", "sunny"
+            if wc in [71,73,75,77,85,86]: ic="snow"
+            elif wc in [51,53,55,56,57,61,63,65,66,67,80,81,82]: ic="rainy"
+            elif wc in [95,96,99]: ic="thunderstorm"
+            elif wc in [45,48]: ic="cloud"
+            elif wc in [1,2,3]: ic="partly-sunny"
+            hl = wd.get("hourly",{}).get("relative_humidity_2m",[50]); hum = hl[0] if hl else 50
+            return {"city": cn, "temperature": t, "humidity": hum, "weather_code": wc, "icon": ic, "skin_advice": adv}
+    except HTTPException: raise
+    except Exception as e: logger.error(f"Weather: {e}"); raise HTTPException(500, "Météo indisponible")
 
-# ─── CHAT ENDPOINT (GPT 5.2) ───
-
+# ─── CHAT (Enhanced context) ───
 @api_router.post("/chat")
 async def chat_message(data: ChatInput, user=Depends(get_current_user)):
-    session_id = data.session_id or f"aria-{user['id']}"
-    user_id = user["id"]
-    await db.chat_messages.insert_one({"session_id": session_id, "user_id": user_id, "role": "user", "content": data.message, "created_at": datetime.now(timezone.utc)})
-    history = await db.chat_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
-    history.reverse()
-    context_parts = []
-    for msg in history[:-1]:
-        role = "Utilisateur" if msg["role"] == "user" else "ARIA"
-        context_parts.append(f"{role}: {msg['content']}")
-    context_str = "\n".join(context_parts) if context_parts else "Début de conversation."
-    system_msg = f"""Tu es ARIA, une assistante beauté IA experte en maquillage et soins de la peau.
-Tu donnes des conseils personnalisés sur les techniques de maquillage, les soins, les produits et les tendances.
-Réponds en français, chaleureusement et professionnellement. Sois concise.
-L'utilisateur s'appelle {user.get('name', '')} et habite à {user.get('city', '')}.
-Historique récent:\n{context_str}"""
+    sid = data.session_id or f"aria-{user['id']}"
+    uid = user["id"]
+    await db.chat_messages.insert_one({"session_id": sid, "user_id": uid, "role": "user", "content": data.message, "created_at": datetime.now(timezone.utc)})
+    hist = await db.chat_messages.find({"session_id": sid}, {"_id": 0}).sort("created_at", -1).limit(15).to_list(15)
+    hist.reverse()
+    ctx = "\n".join([f"{'Utilisateur' if m['role']=='user' else 'ARIA'}: {m['content']}" for m in hist[:-1]]) or "Début."
+    # Gather user context
+    looks = await db.saved_looks.find({"user_id": uid}, {"_id": 0, "name": 1, "products": 1}).to_list(10)
+    looks_ctx = ", ".join([l["name"] for l in looks]) if looks else "Aucun"
+    skin = await db.skin_analyses.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+    skin_ctx = ""
+    if skin:
+        a = skin[0].get("analysis", {})
+        skin_ctx = f"Type de peau: {a.get('type','?')}, Score: {a.get('score','?')}/100, Observations: {', '.join(a.get('observations',[]))}"
+    weather_ctx = ""
     try:
-        llm_chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"aria-llm-{uuid.uuid4().hex[:8]}", system_message=system_msg).with_model("openai", "gpt-5.2")
-        response_text = await llm_chat.send_message(UserMessage(text=data.message))
-        await db.chat_messages.insert_one({"session_id": session_id, "user_id": user_id, "role": "assistant", "content": response_text, "created_at": datetime.now(timezone.utc)})
-        return {"session_id": session_id, "response": response_text}
-    except Exception as e:
-        logger.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail="Erreur du service de chat")
+        async with httpx.AsyncClient(timeout=5) as hc:
+            wr = await hc.get(f"http://localhost:8001/api/weather", params={"city": user.get("city","Paris")})
+            if wr.status_code == 200:
+                w = wr.json()
+                weather_ctx = f"Météo {w['city']}: {w['temperature']}°C, Humidité {w['humidity']}%, Conseil: {w['skin_advice']}"
+    except: pass
+    sys_msg = f"""Tu es ARIA, assistante beauté IA experte. Réponds en français, chaleureusement.
+Infos utilisateur:
+- Nom: {user.get('name','')}, Ville: {user.get('city','')}, Abo: {user.get('subscription','free')}
+- Looks sauvegardés: {looks_ctx}
+- {skin_ctx if skin_ctx else 'Pas encore d analyse de peau'}
+- {weather_ctx if weather_ctx else ''}
+Historique:\n{ctx}"""
+    try:
+        lc = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"aria-{uuid.uuid4().hex[:8]}", system_message=sys_msg).with_model("openai", "gpt-5.2")
+        rt = await lc.send_message(UserMessage(text=data.message))
+        await db.chat_messages.insert_one({"session_id": sid, "user_id": uid, "role": "assistant", "content": rt, "created_at": datetime.now(timezone.utc)})
+        return {"session_id": sid, "response": rt}
+    except Exception as e: logger.error(f"Chat: {e}"); raise HTTPException(500, "Erreur chat")
 
 @api_router.get("/chat/history")
 async def get_chat_history(session_id: str, user=Depends(get_current_user)):
-    messages = await db.chat_messages.find({"session_id": session_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
-    return messages
+    return await db.chat_messages.find({"session_id": session_id, "user_id": user["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
 
 # ─── TUTORIALS ───
-
 @api_router.get("/tutorials")
-async def get_tutorials():
-    tutorials = await db.tutorials.find({}, {"_id": 0}).to_list(100)
-    return tutorials
-
-@api_router.get("/tutorials/{tutorial_id}")
-async def get_tutorial(tutorial_id: str):
-    tutorial = await db.tutorials.find_one({"id": tutorial_id}, {"_id": 0})
-    if not tutorial:
-        raise HTTPException(status_code=404, detail="Tutoriel non trouvé")
-    return tutorial
+async def get_tutorials(): return await db.tutorials.find({}, {"_id": 0}).to_list(100)
 
 # ─── SAVED LOOKS ───
-
 @api_router.get("/looks")
 async def get_looks(user=Depends(get_current_user)):
-    looks = await db.saved_looks.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return looks
+    return await db.saved_looks.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 @api_router.post("/looks")
 async def save_look(data: SavedLookInput, user=Depends(get_current_user)):
-    look_doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "name": data.name, "products": data.products, "notes": data.notes, "created_at": datetime.now(timezone.utc)}
-    await db.saved_looks.insert_one(look_doc)
-    look_doc.pop("_id", None)
-    look_doc["created_at"] = look_doc["created_at"].isoformat()
-    return look_doc
+    doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "name": data.name, "products": data.products, "notes": data.notes, "created_at": datetime.now(timezone.utc)}
+    await db.saved_looks.insert_one(doc)
+    doc.pop("_id", None); doc["created_at"] = doc["created_at"].isoformat()
+    return doc
 
 @api_router.delete("/looks/{look_id}")
 async def delete_look(look_id: str, user=Depends(get_current_user)):
-    result = await db.saved_looks.delete_one({"id": look_id, "user_id": user["id"]})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Look non trouvé")
-    return {"message": "Look supprimé"}
+    r = await db.saved_looks.delete_one({"id": look_id, "user_id": user["id"]})
+    if r.deleted_count == 0: raise HTTPException(404, "Look non trouvé")
+    return {"message": "Supprimé"}
 
-# ─── ADMIN ENDPOINTS ───
-
-@api_router.get("/admin/stats")
-async def get_admin_stats(user=Depends(get_current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Accès admin requis")
-    total_users = await db.users.count_documents({"role": "user"})
-    total_admins = await db.users.count_documents({"role": "admin"})
-    total_looks = await db.saved_looks.count_documents({})
-    total_messages = await db.chat_messages.count_documents({})
-    total_tutorials = await db.tutorials.count_documents({})
-    free_users = await db.users.count_documents({"role": "user", "subscription": {"$in": ["free", None]}})
-    premium_users = await db.users.count_documents({"role": "user", "subscription": "premium"})
-    recent_users = await db.users.find({"role": "user"}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(10).to_list(10)
-    for u in recent_users:
-        if "created_at" in u and isinstance(u["created_at"], datetime):
-            u["created_at"] = u["created_at"].isoformat()
-    return {
-        "total_users": total_users,
-        "total_admins": total_admins,
-        "total_looks": total_looks,
-        "total_messages": total_messages,
-        "total_tutorials": total_tutorials,
-        "subscriptions": {"free": free_users, "premium": premium_users},
-        "recent_users": recent_users,
-    }
-
-# ─── SKIN ANALYSIS (Premium) ───
-
-class SkinAnalysisInput(BaseModel):
-    image: str
-
+# ─── SKIN ANALYSIS ───
 @api_router.post("/skin-analysis")
 async def analyze_skin(data: SkinAnalysisInput, user=Depends(get_current_user)):
-    if user.get("subscription") != "premium":
-        raise HTTPException(status_code=403, detail="Fonctionnalité réservée aux abonnés Premium")
-    system_msg = """Tu es ARIA, experte en dermatologie cosmétique et soins de la peau.
-Analyse cette photo du visage et fournis un diagnostic complet.
-Réponds UNIQUEMENT en JSON valide (pas de texte avant/après) avec cette structure exacte:
-{"type":"type de peau","observations":["observation 1","observation 2","observation 3"],"score":75,"products":[{"name":"nom produit","brand":"marque","reason":"raison"}],"routine":{"morning":["étape 1","étape 2"],"evening":["étape 1","étape 2"]},"summary":"résumé en 2 phrases"}
-- type: sèche, grasse, mixte, normale ou sensible
-- score: santé de la peau sur 100
-- products: 3 à 5 produits avec marques réelles (La Roche-Posay, CeraVe, Nuxe, Bioderma, etc.)
-- routine: 3-4 étapes matin et soir"""
+    if user.get("subscription") != "premium": raise HTTPException(403, "Fonctionnalité Premium requise")
+    sys = """Tu es experte en dermatologie cosmétique. Analyse cette photo et réponds UNIQUEMENT en JSON:
+{"type":"type peau","observations":["obs1","obs2","obs3"],"score":75,"products":[{"name":"produit","brand":"marque","reason":"raison"}],"routine":{"morning":["étape"],"evening":["étape"]},"summary":"résumé 2 phrases"}
+Types: sèche, grasse, mixte, normale, sensible. Score /100. 3-5 produits marques réelles."""
     try:
-        import json as json_mod
-        llm_chat = LlmChat(
-            api_key=os.environ["EMERGENT_LLM_KEY"],
-            session_id=f"skin-{uuid.uuid4().hex[:8]}",
-            system_message=system_msg
-        ).with_model("openai", "gpt-5.2")
-        image_url = f"data:image/jpeg;base64,{data.image}"
-        user_msg = UserMessage(text="Analyse cette photo de mon visage pour évaluer l'état de ma peau et recommander des produits adaptés.", image_urls=[image_url])
-        response_text = await llm_chat.send_message(user_msg)
+        lc = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"skin-{uuid.uuid4().hex[:8]}", system_message=sys).with_model("openai", "gpt-5.2")
+        rt = await lc.send_message(UserMessage(text="Analyse ma peau.", image_urls=[f"data:image/jpeg;base64,{data.image}"]))
         try:
-            clean = response_text.strip()
-            if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
+            clean = rt.strip()
+            if clean.startswith("```"): clean = clean.split("\n",1)[1].rsplit("```",1)[0]
             analysis = json_mod.loads(clean)
-        except Exception:
-            analysis = {"type": "mixte", "observations": ["Analyse textuelle disponible"], "score": 70, "products": [], "routine": {"morning": [], "evening": []}, "summary": response_text[:300]}
+        except: analysis = {"type":"mixte","observations":["Analyse textuelle"],"score":70,"products":[],"routine":{"morning":[],"evening":[]},"summary":rt[:300]}
         await db.skin_analyses.insert_one({"user_id": user["id"], "analysis": analysis, "created_at": datetime.now(timezone.utc)})
         return {"analysis": analysis}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Skin analysis error: {e}")
-        raise HTTPException(status_code=500, detail="Erreur lors de l'analyse")
+    except HTTPException: raise
+    except Exception as e: logger.error(f"Skin: {e}"); raise HTTPException(500, "Erreur analyse")
 
-# Include router
+# ─── CONTACT ───
+@api_router.post("/contact")
+async def submit_contact(data: ContactInput, user=Depends(get_current_user)):
+    doc = {"id": str(uuid.uuid4()), "user_id": user["id"], "user_name": user.get("name",""), "user_email": user.get("email",""), "subject": data.subject, "message": data.message, "status": "new", "admin_email": "tom.clement0814@gmail.com", "created_at": datetime.now(timezone.utc)}
+    await db.contact_requests.insert_one(doc)
+    doc.pop("_id", None); doc["created_at"] = doc["created_at"].isoformat()
+    return {"message": "Message envoyé", "contact": doc}
+
+# ─── STRIPE PAYMENT ───
+PREMIUM_PRICE = 9.99
+
+@api_router.post("/payment/create-checkout")
+async def create_checkout(request: Request, user=Depends(get_current_user)):
+    body = await request.json()
+    host_url = body.get("host_url", str(request.base_url).rstrip("/"))
+    success_url = f"{host_url}/api/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{host_url}/api/payment/cancel"
+    webhook_url = f"{str(request.base_url).rstrip('/')}/api/webhook/stripe"
+    sc = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
+    req = CheckoutSessionRequest(amount=PREMIUM_PRICE, currency="eur", success_url=success_url, cancel_url=cancel_url, metadata={"user_id": user["id"], "user_email": user.get("email",""), "plan": "premium"})
+    session = await sc.create_checkout_session(req)
+    await db.payment_transactions.insert_one({"session_id": session.session_id, "user_id": user["id"], "amount": PREMIUM_PRICE, "currency": "eur", "status": "pending", "payment_status": "initiated", "metadata": {"plan": "premium"}, "created_at": datetime.now(timezone.utc)})
+    return {"url": session.url, "session_id": session.session_id}
+
+@api_router.get("/payment/status/{session_id}")
+async def check_payment_status(session_id: str, request: Request, user=Depends(get_current_user)):
+    webhook_url = f"{str(request.base_url).rstrip('/')}/api/webhook/stripe"
+    sc = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
+    status = await sc.get_checkout_status(session_id)
+    tx = await db.payment_transactions.find_one({"session_id": session_id})
+    if tx and tx.get("payment_status") != "paid" and status.payment_status == "paid":
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"status": "complete", "payment_status": "paid"}})
+        await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"subscription": "premium"}})
+        logger.info(f"User {user['id']} upgraded to premium")
+    elif tx and status.payment_status != "paid":
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"status": status.status, "payment_status": status.payment_status}})
+    return {"status": status.status, "payment_status": status.payment_status, "amount": status.amount_total, "currency": status.currency}
+
+@api_router.get("/payment/success", response_class=HTMLResponse)
+async def payment_success(session_id: str):
+    return f"""<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;color:#fff;text-align:center;margin:0}}h1{{color:#FF2D55;font-size:28px}}p{{color:#8E8E93;margin-top:12px}}</style></head><body><div><h1>Paiement réussi !</h1><p>Votre abonnement Premium ARIA est activé.<br>Retournez dans l'application.</p></div></body></html>"""
+
+@api_router.get("/payment/cancel", response_class=HTMLResponse)
+async def payment_cancel():
+    return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#000;color:#fff;text-align:center;margin:0}h1{color:#FF9500;font-size:28px}p{color:#8E8E93;margin-top:12px}</style></head><body><div><h1>Paiement annulé</h1><p>Aucun montant n'a été prélevé.<br>Retournez dans l'application.</p></div></body></html>"""
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    body = await request.body()
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        webhook_url = f"{str(request.base_url).rstrip('/')}/api/webhook/stripe"
+        sc = StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
+        event = await sc.handle_webhook(body, sig)
+        if event.payment_status == "paid":
+            tx = await db.payment_transactions.find_one({"session_id": event.session_id})
+            if tx and tx.get("payment_status") != "paid":
+                await db.payment_transactions.update_one({"session_id": event.session_id}, {"$set": {"status": "complete", "payment_status": "paid"}})
+                uid = tx.get("user_id") or event.metadata.get("user_id")
+                if uid: await db.users.update_one({"_id": ObjectId(uid)}, {"$set": {"subscription": "premium"}})
+        return {"status": "ok"}
+    except Exception as e: logger.error(f"Webhook: {e}"); return {"status": "error"}
+
+# ─── ADMIN ───
+@api_router.get("/admin/stats")
+async def get_admin_stats(user=Depends(get_current_user)):
+    if user.get("role") != "admin": raise HTTPException(403, "Admin requis")
+    tu = await db.users.count_documents({"role":"user"})
+    tl = await db.saved_looks.count_documents({})
+    tm = await db.chat_messages.count_documents({})
+    tt = await db.tutorials.count_documents({})
+    fu = await db.users.count_documents({"role":"user","subscription":{"$in":["free",None]}})
+    pu = await db.users.count_documents({"role":"user","subscription":"premium"})
+    ru = await db.users.find({"role":"user"},{"_id":0,"password_hash":0}).sort("created_at",-1).limit(10).to_list(10)
+    for u in ru:
+        if isinstance(u.get("created_at"), datetime): u["created_at"] = u["created_at"].isoformat()
+    contacts = await db.contact_requests.find({},{"_id":0}).sort("created_at",-1).limit(20).to_list(20)
+    for c in contacts:
+        if isinstance(c.get("created_at"), datetime): c["created_at"] = c["created_at"].isoformat()
+    return {"total_users":tu,"total_looks":tl,"total_messages":tm,"total_tutorials":tt,"subscriptions":{"free":fu,"premium":pu},"recent_users":ru,"contacts":contacts}
+
 app.include_router(api_router)
-
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# ─── STARTUP ───
 
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
-    await seed_tutorials()
-    await seed_admin()
-    logger.info("ARIA backend started successfully")
+    await seed_tutorials(); await seed_admin()
+    logger.info("ARIA backend started")
 
 async def seed_admin():
-    admin_email = os.environ.get("ADMIN_EMAIL", "tom@gmail.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "Tomcle62")
-    existing = await db.users.find_one({"email": admin_email})
-    if existing is None:
-        old_admin = await db.users.find_one({"role": "admin"})
-        if old_admin:
-            await db.users.update_one({"_id": old_admin["_id"]}, {"$set": {"email": admin_email, "password_hash": hash_password(admin_password), "name": "Tom", "city": "Paris", "subscription": "premium"}})
-            logger.info(f"Admin updated to: {admin_email}")
-        else:
-            await db.users.insert_one({"email": admin_email, "password_hash": hash_password(admin_password), "name": "Tom", "city": "Paris", "role": "admin", "subscription": "premium", "created_at": datetime.now(timezone.utc)})
-            logger.info(f"Admin seeded: {admin_email}")
-    else:
-        updates = {"role": "admin", "subscription": "premium"}
-        if not verify_password(admin_password, existing["password_hash"]):
-            updates["password_hash"] = hash_password(admin_password)
-        await db.users.update_one({"email": admin_email}, {"$set": updates})
+    ae = os.environ.get("ADMIN_EMAIL","tom@gmail.com"); ap = os.environ.get("ADMIN_PASSWORD","Tomcle62")
+    ex = await db.users.find_one({"email": ae})
+    if not ex:
+        old = await db.users.find_one({"role":"admin"})
+        if old: await db.users.update_one({"_id":old["_id"]},{"$set":{"email":ae,"password_hash":hash_password(ap),"name":"Tom","city":"Paris","subscription":"premium"}})
+        else: await db.users.insert_one({"email":ae,"password_hash":hash_password(ap),"name":"Tom","city":"Paris","role":"admin","subscription":"premium","avatar":"","created_at":datetime.now(timezone.utc)})
+    else: await db.users.update_one({"email":ae},{"$set":{"role":"admin","subscription":"premium"}})
 
 async def seed_tutorials():
-    first = await db.tutorials.find_one({})
-    if first and "premium" not in first:
-        await db.tutorials.drop()
-        logger.info("Dropped old tutorials (missing premium field)")
-    count = await db.tutorials.count_documents({})
-    if count == 0:
-        tutorials = [
-            {"id": str(uuid.uuid4()), "title": "Maquillage Naturel Quotidien", "description": "Les bases d'un look naturel et frais pour tous les jours.", "duration": "15 min", "level": "Débutant", "category": "Quotidien", "premium": False, "image_index": 0,
-             "steps": ["Préparer la peau avec une crème hydratante", "Appliquer un fond de teint léger au pinceau", "Estomper avec une éponge humide", "Ajouter un blush rosé sur les pommettes", "Mascara léger sur les cils", "Baume à lèvres teinté"]},
-            {"id": str(uuid.uuid4()), "title": "Smoky Eyes Élégant", "description": "Maîtrisez le smoky eyes classique pour un regard intense.", "duration": "25 min", "level": "Intermédiaire", "category": "Soirée", "premium": False, "image_index": 1,
-             "steps": ["Appliquer une base à paupières", "Poser une teinte claire sur la paupière", "Appliquer une ombre foncée dans le creux", "Estomper les transitions", "Liner fin le long des cils", "Mascara volumisant"]},
-            {"id": str(uuid.uuid4()), "title": "Contouring et Sculpting", "description": "Sculptez votre visage comme une pro.", "duration": "20 min", "level": "Intermédiaire", "category": "Technique", "premium": True, "image_index": 2,
-             "steps": ["Identifier la forme de votre visage", "Appliquer le contour sous les pommettes", "Éclaircir le centre avec le highlighter", "Estomper avec un pinceau adapté", "Fixer avec poudre translucide", "Blush pour la touche finale"]},
-            {"id": str(uuid.uuid4()), "title": "Teint Parfait Zéro Défaut", "description": "Un teint impeccable et lumineux.", "duration": "18 min", "level": "Débutant", "category": "Base", "premium": False, "image_index": 0,
-             "steps": ["Nettoyer et hydrater la peau", "Appliquer un primer adapté", "Choisir le bon fond de teint", "Appliquer au pinceau ou éponge", "Corriger les imperfections", "Fixer avec un spray fixateur"]},
-            {"id": str(uuid.uuid4()), "title": "Lèvres Parfaites", "description": "Tous les secrets pour des lèvres sublimes.", "duration": "12 min", "level": "Débutant", "category": "Lèvres", "premium": False, "image_index": 1,
-             "steps": ["Exfolier délicatement les lèvres", "Appliquer un baume hydratant", "Dessiner le contour au crayon", "Remplir avec le rouge à lèvres", "Estomper pour un rendu naturel", "Gloss au centre"]},
-            {"id": str(uuid.uuid4()), "title": "Maquillage de Soirée Glamour", "description": "Un look sophistiqué pour vos soirées.", "duration": "30 min", "level": "Avancé", "category": "Soirée", "premium": True, "image_index": 2,
-             "steps": ["Base avec primer illuminateur", "Fond de teint longue tenue", "Yeux charbonneux avec paillettes", "Faux cils dramatiques", "Contouring prononcé", "Rouge à lèvres bold", "Highlighter stratégique", "Spray fixateur"]},
+    f = await db.tutorials.find_one({}); 
+    if f and "premium" not in f: await db.tutorials.drop()
+    if await db.tutorials.count_documents({}) == 0:
+        ts = [
+            {"id":str(uuid.uuid4()),"title":"Maquillage Naturel Quotidien","description":"Les bases d'un look naturel et frais.","duration":"15 min","level":"Débutant","category":"Quotidien","premium":False,"image_index":0,"steps":["Préparer la peau","Fond de teint léger","Estomper","Blush rosé","Mascara","Baume à lèvres"]},
+            {"id":str(uuid.uuid4()),"title":"Smoky Eyes Élégant","description":"Le smoky eyes classique.","duration":"25 min","level":"Intermédiaire","category":"Soirée","premium":False,"image_index":1,"steps":["Base à paupières","Teinte claire","Ombre foncée","Estomper","Liner","Mascara"]},
+            {"id":str(uuid.uuid4()),"title":"Contouring et Sculpting","description":"Sculptez votre visage.","duration":"20 min","level":"Intermédiaire","category":"Technique","premium":True,"image_index":2,"steps":["Forme du visage","Contour pommettes","Highlighter","Estomper","Poudre","Blush"]},
+            {"id":str(uuid.uuid4()),"title":"Teint Parfait","description":"Un teint impeccable.","duration":"18 min","level":"Débutant","category":"Base","premium":False,"image_index":0,"steps":["Nettoyer","Primer","Fond de teint","Appliquer","Correcteur","Spray fixateur"]},
+            {"id":str(uuid.uuid4()),"title":"Lèvres Parfaites","description":"Secrets pour des lèvres sublimes.","duration":"12 min","level":"Débutant","category":"Lèvres","premium":False,"image_index":1,"steps":["Exfolier","Baume","Crayon contour","Rouge à lèvres","Estomper","Gloss"]},
+            {"id":str(uuid.uuid4()),"title":"Soirée Glamour","description":"Look sophistiqué.","duration":"30 min","level":"Avancé","category":"Soirée","premium":True,"image_index":2,"steps":["Primer illuminateur","Fond de teint","Yeux charbonneux","Faux cils","Contouring","Rouge bold","Highlighter","Spray"]},
         ]
-        await db.tutorials.insert_many(tutorials)
-        logger.info(f"Seeded {len(tutorials)} tutorials")
+        await db.tutorials.insert_many(ts)
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def shutdown(): client.close()
