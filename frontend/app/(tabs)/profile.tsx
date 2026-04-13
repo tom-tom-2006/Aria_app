@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, TextInput,
-  Platform, ActivityIndicator, Alert, KeyboardAvoidingView,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
+  Platform, ActivityIndicator, Alert, KeyboardAvoidingView, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { apiCall } from '../../utils/api';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function ProfileScreen() {
   const { user, logout, updateUser } = useAuth();
@@ -66,7 +68,7 @@ export default function ProfileScreen() {
   const isAdmin = user?.role === 'admin';
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top }]}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView testID="profile-screen" contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.titleRow}>
@@ -179,7 +181,7 @@ export default function ProfileScreen() {
           <View style={{ height: 120 }} />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
