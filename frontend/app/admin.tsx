@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiCall } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -17,7 +16,6 @@ type Stats = {
 
 export default function AdminScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,13 +28,13 @@ export default function AdminScreen() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
-  if (loading) return <View style={[styles.container, { paddingTop: insets.top }]}><View style={styles.center}><ActivityIndicator size="large" color="#FF2D55" /></View></View>;
+  if (loading) return <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}><View style={styles.center}><ActivityIndicator size="large" color="#FF2D55" /></View></View>;
 
   const totalSubs = (stats?.subscriptions.free || 0) + (stats?.subscriptions.premium || 0);
   const premPct = totalSubs > 0 ? Math.round((stats?.subscriptions.premium || 0) / totalSubs * 100) : 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}>
       <View style={styles.topBar}>
         <TouchableOpacity testID="admin-back" onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={24} color="#FFF" /></TouchableOpacity>
         <Text style={styles.topTitle}>Administration</Text>

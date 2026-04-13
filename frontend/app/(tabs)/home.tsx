@@ -5,7 +5,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { apiCall } from '../../utils/api';
 import ChatModal from '../../components/ChatModal';
@@ -18,7 +17,6 @@ type WeatherData = { city: string; temperature: number; humidity: number; icon: 
 export default function HomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [chatVisible, setChatVisible] = useState(false);
@@ -48,7 +46,7 @@ export default function HomeScreen() {
   const getGreeting = () => { const h = now.getHours(); return h < 12 ? 'Bonjour' : h < 18 ? 'Bon après-midi' : 'Bonsoir'; };
 
   return (
-    <View testID="home-screen" style={[styles.container, { paddingTop: insets.top }]}>
+    <View testID="home-screen" style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF2D55" />}>
 

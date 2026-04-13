@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { apiCall } from '../utils/api';
 
@@ -20,7 +19,6 @@ type Analysis = {
 
 export default function SkinAnalysisScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [photo, setPhoto] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<Analysis | null>(null);
@@ -64,7 +62,7 @@ export default function SkinAnalysisScreen() {
   const getScoreColor = (score: number) => score >= 80 ? '#34C759' : score >= 60 ? '#FF9500' : '#FF3B30';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}>
       <View style={styles.topBar}>
         <TouchableOpacity testID="skin-back" onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#000" />

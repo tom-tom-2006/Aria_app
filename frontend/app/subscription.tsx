@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Linking, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiCall } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,7 +15,6 @@ const FEATURES = [
 
 export default function SubscriptionScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuth();
   const params = useLocalSearchParams<{ session_id?: string }>();
   const [loading, setLoading] = useState(false);
@@ -59,7 +57,7 @@ export default function SubscriptionScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}>
       <View style={styles.topBar}>
         <TouchableOpacity testID="sub-back" onPress={() => router.back()} style={styles.backBtn}><Ionicons name="chevron-back" size={24} color="#000" /></TouchableOpacity>
         <Text style={styles.topTitle}>Abonnement</Text>

@@ -134,6 +134,28 @@ async def get_weather(city: str):
     except HTTPException: raise
     except Exception as e: logger.error(f"Weather: {e}"); raise HTTPException(500, "Météo indisponible")
 
+# ─── CHAT ACTIONS ───
+@api_router.post("/chat/action")
+async def chat_action(request: Request, user=Depends(get_current_user)):
+    body = await request.json()
+    action = body.get("action")
+    uid = user["id"]
+    if action == "rename_look":
+        look_id = body.get("look_id")
+        new_name = body.get("new_name", "").strip()
+        if not look_id or not new_name: raise HTTPException(400, "look_id et new_name requis")
+        r = await db.saved_looks.update_one({"id": look_id, "user_id": uid}, {"$set": {"name": new_name}})
+        return {"success": r.modified_count > 0, "message": f"Look renommé en '{new_name}'" if r.modified_count else "Look non trouvé"}
+    elif action == "delete_look":
+        look_id = body.get("look_id")
+        if not look_id: raise HTTPException(400, "look_id requis")
+        r = await db.saved_looks.delete_one({"id": look_id, "user_id": uid})
+        return {"success": r.deleted_count > 0, "message": "Look supprimé" if r.deleted_count else "Look non trouvé"}
+    elif action == "list_looks":
+        looks = await db.saved_looks.find({"user_id": uid}, {"_id": 0, "id": 1, "name": 1}).to_list(50)
+        return {"looks": looks}
+    raise HTTPException(400, "Action inconnue")
+
 # ─── CHAT (Enhanced context) ───
 @api_router.post("/chat")
 async def chat_message(data: ChatInput, user=Depends(get_current_user)):

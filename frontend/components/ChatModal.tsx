@@ -54,13 +54,53 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setLoading(true);
 
+    // Check if user wants to rename a look
+    const renameMatch = text.match(/renomm[ée].*(?:look|sauvegarde).*[""«](.+?)[""»]/i) || text.match(/renomm[ée].*(?:look|sauvegarde).*en\s+(.+)/i);
+    if (renameMatch) {
+      try {
+        // First get list of looks
+        const looksResp = await apiCall('/api/chat/action', { method: 'POST', body: JSON.stringify({ action: 'list_looks' }) });
+        if (looksResp.ok) {
+          const { looks } = await looksResp.json();
+          if (looks.length > 0) {
+            const newName = renameMatch[1].trim();
+            const actionResp = await apiCall('/api/chat/action', { method: 'POST', body: JSON.stringify({ action: 'rename_look', look_id: looks[0].id, new_name: newName }) });
+            if (actionResp.ok) {
+              const result = await actionResp.json();
+              setMessages(prev => [...prev, { role: 'assistant', content: result.success ? `C'est fait ! J'ai renommé votre look en "${newName}" ✨` : 'Je n\'ai pas trouvé ce look.' }]);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (e) { /* fall through to regular chat */ }
+    }
+
+    // Check for delete look request
+    const deleteMatch = text.match(/supprim[ée].*(?:look|sauvegarde)/i);
+    if (deleteMatch) {
+      try {
+        const looksResp = await apiCall('/api/chat/action', { method: 'POST', body: JSON.stringify({ action: 'list_looks' }) });
+        if (looksResp.ok) {
+          const { looks } = await looksResp.json();
+          if (looks.length > 0) {
+            const actionResp = await apiCall('/api/chat/action', { method: 'POST', body: JSON.stringify({ action: 'delete_look', look_id: looks[0].id }) });
+            if (actionResp.ok) {
+              const result = await actionResp.json();
+              setMessages(prev => [...prev, { role: 'assistant', content: result.success ? `Look "${looks[0].name}" supprimé ! 🗑️` : 'Je n\'ai pas trouvé de look à supprimer.' }]);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (e) { /* fall through */ }
+    }
+
+    // Regular chat
     try {
       const resp = await apiCall('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({
-          message: text,
-          session_id: sessionId,
-        }),
+        body: JSON.stringify({ message: text, session_id: sessionId }),
       });
 
       if (resp.ok) {
@@ -68,16 +108,10 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
         setSessionId(data.session_id);
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       } else {
-        setMessages(prev => [
-          ...prev,
-          { role: 'assistant', content: 'Désolée, je rencontre un problème. Réessayez dans un instant.' },
-        ]);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Désolée, je rencontre un problème. Réessayez dans un instant.' }]);
       }
     } catch (e) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: 'Erreur de connexion. Vérifiez votre réseau.' },
-      ]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Erreur de connexion. Vérifiez votre réseau.' }]);
     } finally {
       setLoading(false);
     }

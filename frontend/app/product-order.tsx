@@ -2,13 +2,11 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Sel = { category: string; product: string; shade: string; shadeColor: string };
 
 export default function ProductOrderScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ products?: string }>();
   const initial: Sel[] = params.products ? JSON.parse(params.products) : [];
   const [items, setItems] = useState<Sel[]>(initial);
@@ -27,7 +25,7 @@ export default function ProductOrderScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 52 : 40 }]}>
       <View style={styles.topBar}>
         <TouchableOpacity testID="order-back" onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#000" />
@@ -62,7 +60,7 @@ export default function ProductOrderScreen() {
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}>
+      <View style={[styles.bottomBar, { paddingBottom: Platform.OS === 'ios' ? 36 : 20 }]}>
         <TouchableOpacity testID="confirm-order-button" style={styles.confirmBtn}
           onPress={() => router.push({ pathname: '/studio', params: { products: JSON.stringify(items) } })}>
           <Ionicons name="videocam" size={20} color="#FFF" />

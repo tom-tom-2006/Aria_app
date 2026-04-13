@@ -3,11 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function StudioScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ products?: string; tutorialTitle?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('front');
@@ -39,7 +37,7 @@ export default function StudioScreen() {
     <View style={styles.container}>
       <CameraView style={styles.camera} facing={facing}>
         {/* Top bar */}
-        <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <View style={[styles.topBar, { paddingTop: Platform.OS === 'ios' ? 56 : 40 }]}>
           <TouchableOpacity testID="studio-back-button" onPress={() => router.back()} style={styles.topBtn}>
             <Ionicons name="chevron-back" size={26} color="#FFF" />
           </TouchableOpacity>
@@ -50,7 +48,7 @@ export default function StudioScreen() {
         </View>
 
         {/* Bottom hint */}
-        <View style={[styles.bottomHint, { paddingBottom: insets.bottom + 16 }]}>
+        <View style={[styles.bottomHint, { paddingBottom: Platform.OS === 'ios' ? 36 : 20 }]}>
           <View style={styles.hintBox}>
             <Ionicons name="sparkles" size={16} color="#FF2D55" />
             <Text style={styles.hintText}>Guidage IA Face Mesh — bientôt disponible</Text>
