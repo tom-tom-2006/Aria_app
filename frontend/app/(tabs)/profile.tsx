@@ -140,15 +140,24 @@ export default function ProfileScreen() {
           </View>
 
           {/* Subscription Card */}
-          <View style={styles.subscriptionCard}>
-            <View style={styles.subLeft}>
-              <View style={styles.subBadge}><Ionicons name="sparkles" size={14} color="#000" /><Text style={styles.subBadgeText}>Gratuit</Text></View>
-              <Text style={styles.subText}>Passez à Premium pour l'analyse faciale et les cours avancés</Text>
+          {isPremium ? (
+            <View style={[styles.subscriptionCard, { backgroundColor: '#F0FFF4', borderWidth: 1.5, borderColor: '#34C759' }]}>
+              <View style={styles.subLeft}>
+                <View style={[styles.subBadge, { backgroundColor: '#34C759' }]}><Ionicons name="checkmark-circle" size={14} color="#FFF" /><Text style={[styles.subBadgeText, { color: '#FFF' }]}>Premium</Text></View>
+                <Text style={styles.subText}>Vous avez accès à toutes les fonctionnalités ARIA</Text>
+              </View>
             </View>
-            <TouchableOpacity testID="upgrade-button" style={styles.upgradeButton}>
-              <Text style={styles.upgradeText}>Découvrir</Text>
-            </TouchableOpacity>
-          </View>
+          ) : (
+            <View style={styles.subscriptionCard}>
+              <View style={styles.subLeft}>
+                <View style={styles.subBadge}><Ionicons name="sparkles" size={14} color="#000" /><Text style={styles.subBadgeText}>Gratuit</Text></View>
+                <Text style={styles.subText}>Passez à Premium pour l'analyse faciale et les cours avancés</Text>
+              </View>
+              <TouchableOpacity testID="upgrade-button" style={styles.upgradeButton} onPress={() => router.push('/subscription')}>
+                <Text style={styles.upgradeText}>Découvrir</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Admin Button */}
           {isAdmin && (

@@ -13,7 +13,7 @@ from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 import bcrypt, jwt
 from bson import ObjectId
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
 from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
 
 mongo_url = os.environ['MONGO_URL']
@@ -208,7 +208,8 @@ async def analyze_skin(data: SkinAnalysisInput, user=Depends(get_current_user)):
 Types: sèche, grasse, mixte, normale, sensible. Score /100. 3-5 produits marques réelles."""
     try:
         lc = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"skin-{uuid.uuid4().hex[:8]}", system_message=sys).with_model("openai", "gpt-5.2")
-        rt = await lc.send_message(UserMessage(text="Analyse ma peau.", image_urls=[f"data:image/jpeg;base64,{data.image}"]))
+        img_file = FileContent(content_type="image/jpeg", file_content_base64=data.image)
+        rt = await lc.send_message(UserMessage(text="Analyse ma peau.", file_contents=[img_file]))
         try:
             clean = rt.strip()
             if clean.startswith("```"): clean = clean.split("\n",1)[1].rsplit("```",1)[0]

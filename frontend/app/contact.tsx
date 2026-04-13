@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,10 +18,14 @@ export default function ContactScreen() {
     if (!subject.trim() || !message.trim()) { Alert.alert('Erreur', 'Remplissez tous les champs'); return; }
     setSending(true);
     try {
+      // Save to DB
       const resp = await apiCall('/api/contact', { method: 'POST', body: JSON.stringify({ subject: subject.trim(), message: message.trim() }) });
+      // Also open native email
+      const mailTo = `mailto:tom.clement0814@gmail.com?subject=${encodeURIComponent(`[ARIA] ${subject.trim()}`)}&body=${encodeURIComponent(`De: ${user?.name} (${user?.email})\n\n${message.trim()}`)}`;
+      await Linking.openURL(mailTo);
       if (resp.ok) {
-        Alert.alert('Envoyé !', 'Votre message a été transmis à l\'équipe ARIA. Nous vous répondrons rapidement.', [{ text: 'OK', onPress: () => router.back() }]);
-      } else { Alert.alert('Erreur', 'Impossible d\'envoyer'); }
+        Alert.alert('Envoyé !', 'Votre message a été enregistré et l\'app email s\'est ouverte pour confirmer l\'envoi.', [{ text: 'OK', onPress: () => router.back() }]);
+      }
     } catch (e) { Alert.alert('Erreur', 'Erreur réseau'); } finally { setSending(false); }
   };
 
