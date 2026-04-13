@@ -13,11 +13,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 import { apiCall } from '../../utils/api';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
+  const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -62,7 +64,7 @@ export default function LoginScreen() {
         >
           <View style={styles.header}>
             <Text style={styles.brand}>ARIA</Text>
-            <Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
+            <Text style={styles.subtitle}>{t('connect')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -72,7 +74,7 @@ export default function LoginScreen() {
               </View>
             ) : null}
 
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('email')}</Text>
             <TextInput
               testID="login-email-input"
               style={styles.input}
@@ -85,7 +87,7 @@ export default function LoginScreen() {
               autoComplete="email"
             />
 
-            <Text style={styles.label}>Mot de passe</Text>
+            <Text style={styles.label}>{t('password')}</Text>
             <TextInput
               testID="login-password-input"
               style={styles.input}
@@ -106,7 +108,7 @@ export default function LoginScreen() {
               {loading ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.buttonText}>Se connecter</Text>
+                <Text style={styles.buttonText}>{t('login')}</Text>
               )}
             </TouchableOpacity>
 
@@ -116,8 +118,8 @@ export default function LoginScreen() {
               onPress={() => router.push('/(auth)/register')}
             >
               <Text style={styles.linkText}>
-                Pas encore de compte ?{' '}
-                <Text style={styles.linkBold}>Créer un compte</Text>
+                {t('no_account')}{' '}
+                <Text style={styles.linkBold}>{t('create_account')}</Text>
               </Text>
             </TouchableOpacity>
           </View>

@@ -1,8 +1,10 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform } from 'react-native';
+import { useLanguage } from '../../context/LanguageContext';
 
 export default function TabLayout() {
+  const { t } = useLanguage();
   return (
     <Tabs
       screenOptions={{
@@ -33,7 +35,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Accueil',
+          title: t('home'),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
           ),
@@ -42,7 +44,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="tutorials"
         options={{
-          title: 'Cours',
+          title: t('courses'),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={24} color={color} />
           ),
@@ -51,7 +53,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="looks"
         options={{
-          title: 'Looks',
+          title: t('looks'),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'heart' : 'heart-outline'} size={24} color={color} />
           ),
